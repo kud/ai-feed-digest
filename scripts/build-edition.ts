@@ -49,6 +49,20 @@ const GLYPHS = {
   window: "⌚"
 } as const;
 
+// Concurrency for AI summaries (override with env SUMMARY_CONCURRENCY=5 etc.)
+const SUMMARY_CONCURRENCY = (() => {
+  const v = Number(process.env.SUMMARY_CONCURRENCY);
+  if (Number.isFinite(v) && v >= 1) return Math.min(v, 10);
+  return 3; // default
+})();
+// Concurrency for article hydration (env HYDRATE_CONCURRENCY=8 etc.)
+const HYDRATE_CONCURRENCY = (() => {
+  const v = Number(process.env.HYDRATE_CONCURRENCY);
+  if (Number.isFinite(v) && v >= 1) return Math.min(v, 12);
+  return 6; // default
+})();
+
+
 function logInfo(icon: string, message: string) {
   console.log(`${COLORS.info}${icon}${COLORS.reset} ${message}`);
 }
@@ -117,6 +131,23 @@ interface CollectionWindow {
 async function main() {
   const startTime = Date.now();
   let spinner: Ora | null = null;
+
+  // Ensure warnings / errors appear on their own line when spinner is active
+  const originalWarn = console.warn.bind(console);
+  console.warn = (...args: any[]) => {
+    if (spinner && spinner.isSpinning) {
+      // Move to a fresh line before printing the warning so it doesn't share spinner line
+      process.stdout.write('\n');
+    }
+    originalWarn(...args);
+  };
+  const originalError = console.error.bind(console);
+  console.error = (...args: any[]) => {
+    if (spinner && spinner.isSpinning) {
+      process.stdout.write('\n');
+    }
+    originalError(...args);
+  };
   
   try {
     await fs.mkdir(path.dirname(SEEN_CACHE_PATH), { recursive: true });
@@ -207,32 +238,7 @@ async function main() {
     spinner.succeed(`AI connection ready`);
 
     spinner = ora(`Generating AI summaries (0/${pendingStories.length})`).start();
-    let summaryCount = 0;
-    
-    for (const story of pendingStories) {
-      summaryCount++;
-      spinner.text = `Generating AI summaries (${summaryCount}/${pendingStories.length}) - ${story.item.title.slice(0, 50)}...`;
-      
-      const text = story.text ?? "";
-      const summaryInput = toSummariseInput(story.item, config, text);
-      const summary = await summariseWithOC(summaryInput, config);
-      const editionItem: EditionItem = {
-        title: story.item.title,
-        url: story.item.url,
-        publishedAt: story.item.publishedAt,
-        summary
-      };
-      story.bucket.push(editionItem);
-      narrativeStories.push({
-        feed: story.feedTitle,
-        title: story.item.title,
-        url: story.item.url,
-        publishedAt: story.item.publishedAt,
-        summary
-      });
-      const fingerprint = fingerprintUrl(story.item.url);
-      seen.add(fingerprint);
-    }
+    await summariseStories(pendingStories, config, seen, narrativeStories, spinner);
     spinner.succeed(`Generated ${pendingStories.length} AI summaries`);
 
     const sourcesWithContent = sources.filter((source) => source.items.length > 0);
@@ -413,14 +419,70 @@ function pickFreshItems(
 }
 
 async function hydrateArticleTexts(stories: PendingStory[], config: DigestConfig, spinner?: Ora): Promise<void> {
-  let count = 0;
-  for (const story of stories) {
-    count++;
+  let completed = 0;
+  await runPool(stories, HYDRATE_CONCURRENCY, async (story) => {
     if (spinner) {
-      spinner.text = `Fetching full article content (${count}/${stories.length}) - ${story.item.title.slice(0, 50)}...`;
+      spinner.text = `Fetching full article content (${completed + 1}/${stories.length}) - ${story.item.title.slice(0, 50)}...`;
     }
     story.text = await resolveItemText(story.item, config);
+    completed++;
+  });
+}
+
+async function summariseStories(
+  stories: PendingStory[],
+  config: DigestConfig,
+  seen: SeenCache,
+  narrativeStories: EditionNarrativeItem[],
+  spinner?: Ora
+): Promise<void> {
+  let completed = 0;
+  // We purposely mutate buckets in-place to retain grouping by feed.
+  await runPool(stories, SUMMARY_CONCURRENCY, async (story, index) => {
+    const text = story.text ?? "";
+    const summaryInput = toSummariseInput(story.item, config, text);
+    const summary = await summariseWithOC(summaryInput, config);
+    const editionItem: EditionItem = {
+      title: story.item.title,
+      url: story.item.url,
+      publishedAt: story.item.publishedAt,
+      summary
+    };
+    story.bucket.push(editionItem);
+    narrativeStories.push({
+      feed: story.feedTitle,
+      title: story.item.title,
+      url: story.item.url,
+      publishedAt: story.item.publishedAt,
+      summary
+    });
+    const fingerprint = fingerprintUrl(story.item.url);
+    seen.add(fingerprint);
+    completed++;
+    if (spinner) {
+      spinner.text = `Generating AI summaries (${completed}/${stories.length}) - ${story.item.title.slice(0, 50)}...`;
+    }
+  });
+  // Narrative order currently reflects completion order; if deterministic ordering is required,
+  // we could sort narrativeStories by original index here using a captured index field.
+}
+
+async function runPool<T>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
+  const size = items.length;
+  if (size === 0) return;
+  let cursor = 0;
+  const runners: Promise<void>[] = [];
+  const limit = Math.max(1, concurrency);
+  for (let i = 0; i < Math.min(limit, size); i++) {
+    runners.push((async function pump() {
+      while (true) {
+        const current = cursor++;
+        if (current >= size) break;
+        await worker(items[current], current);
+      }
+    })());
   }
+  await Promise.all(runners);
 }
 
 function resolveCollectionWindow(

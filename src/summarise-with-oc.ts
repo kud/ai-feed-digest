@@ -24,16 +24,35 @@ export async function summariseWithOC(
   try {
     const text = await withTimeout(requestCompletion(prompt, config), timeoutMs);
     if (text) {
-      const parsed = parseOpenCodeOutput(text);
-      return {
-        ...parsed,
-        via: "opencode",
-        engine: config.opencode.model
-      };
+      try {
+        const parsed = parseOpenCodeOutput(text);
+        return {
+          ...parsed,
+          via: "opencode",
+          engine: config.opencode.model
+        };
+      } catch (parseError) {
+        if (process.env.NODE_ENV !== "production") {
+          const raw = text.trim();
+          const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
+          const bulletLines = lines.filter(l => /^[-*•]\s+/.test(l));
+          const domain = (() => {
+            try { return new URL(input.url).hostname; } catch { return "unknown"; }
+          })();
+          const preview = raw.replace(/\s+/g, ' ').slice(0, 280);
+          console.warn(
+            `[summarise] Parse failure for article title="${input.title}" url="${input.url}" domain=${domain} model=${config.opencode.model}: ${(parseError as Error).message}. ` +
+            `Bullet candidates=${bulletLines.length}. Raw preview="${preview}${raw.length > 280 ? '…' : ''}"`
+          );
+        }
+      }
     }
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.warn("[summarise] OpenCode failed, falling back:", (error as Error).message);
+      const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
+      console.warn(
+        `[summarise] OpenCode request failed for title="${input.title}" url="${input.url}" domain=${domain} model=${config.opencode.model}: ${(error as Error).message}`
+      );
     }
   }
 
