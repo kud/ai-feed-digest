@@ -50,31 +50,31 @@
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
 }
 
-:root[data-font="modern"] {
+main[data-font="modern"] {
   --font-base: 'Inter', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", 'Roboto', sans-serif;
 }
 
-:root[data-font="journal"] {
+main[data-font="journal"] {
   --font-base: 'Source Serif 4', 'EB Garamond', 'Times New Roman', serif;
 }
 
-:root[data-font="serif"] {
+main[data-font="serif"] {
   --font-base: 'Merriweather', 'Georgia', 'Times New Roman', serif;
 }
 
-:root[data-font="mono"] {
+main[data-font="mono"] {
   --font-base: 'IBM Plex Mono', 'SFMono-Regular', 'Menlo', monospace;
 }
 
-:root[data-size="sm"] {
+main[data-size="sm"] {
   --font-size-base: 0.94rem;
 }
 
-:root[data-size="md"] {
+main[data-size="md"] {
   --font-size-base: 1rem;
 }
 
-:root[data-size="lg"] {
+main[data-size="lg"] {
   --font-size-base: 1.08rem;
 }
 
@@ -93,9 +93,20 @@ body {
   transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   line-height: 1.6;
   font-feature-settings: "kern", "liga", "calt";
+  font-family: 'Inter', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", 'Roboto', sans-serif;
+  font-size: 1rem;
+}
+
+/* Apply preference-driven typography only within the main content area */
+#main {
   font-family: var(--font-base);
   font-size: var(--font-size-base);
+  line-height: 1.65;
 }
+
+#main[data-size="sm"] { line-height: 1.58; }
+#main[data-size="md"] { line-height: 1.65; }
+#main[data-size="lg"] { line-height: 1.72; }
 
 .theme-transition,
 .theme-transition * {
@@ -233,11 +244,17 @@ a:focus-visible {
   font-size: clamp(1.45rem, 2.6vw, 1.9rem);
   font-weight: 800;
   letter-spacing: -0.035em;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+  line-height: 1.05; /* tighter line height for brand title */
+  /* Stronger gradient only (no shadow) */
+  background: linear-gradient(135deg,
+    var(--accent-hover) 0%,
+    var(--accent) 30%,
+    #1e40af 75%,
+    var(--accent-hover) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  transition: transform 0.2s ease, filter 0.2s ease;
+  transition: transform 0.12s ease-out, filter 0.12s ease-out;
 }
 
 .site-title:hover {
@@ -494,7 +511,7 @@ a:focus-visible {
   top: 0.1rem;
   color: var(--accent);
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1em; /* scale with text size */
   transition: transform 0.2s ease;
 }
 
@@ -504,7 +521,8 @@ a:focus-visible {
 
 /* Enhanced markdown styling */
 .markdown {
-  font-size: 1.0625rem;
+  /* Use em so it scales with #main font-size */
+  font-size: 1.0625em;
   line-height: 1.8;
 }
 
@@ -555,15 +573,39 @@ a:focus-visible {
 
 /* Hero edition heading */
 .edition-heading {
-  font-size: clamp(2rem, 4vw, 3rem);
-  margin: 0;
+  font-size: clamp(2.1rem, 3.9vw, 3rem);
+  margin: 0 0 1.75rem;
   font-weight: 800;
   letter-spacing: -0.03em;
-  line-height: 1.15;
-  background: linear-gradient(135deg, var(--foreground) 0%, var(--foreground-muted) 100%);
+  line-height: 1.08;
+  position: relative;
+}
+.edition-heading__main {
+  background: linear-gradient(90deg,var(--foreground) 0%,var(--foreground-muted) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+.edition-heading__sep { opacity: 0.35; margin: 0 0.45ch; }
+.edition-heading__date {
+  font-size: 0.52em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--foreground-muted);
+  position: relative;
+  top: -0.05em;
+}
+.edition-heading::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -0.6rem;
+  height: 2px;
+  width: 70px;
+  background: linear-gradient(90deg,var(--accent) 0%,var(--accent-hover) 100%);
+  border-radius: 2px;
+  opacity: 0.9;
 }
 
 .section-heading {
@@ -615,7 +657,7 @@ a:focus-visible {
 
 .entry-title {
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: 1.125em; /* scale with base size */
   line-height: 1.4;
   color: var(--foreground);
   transition: color 0.2s ease;
@@ -631,7 +673,7 @@ a:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
-  font-size: 0.8125rem;
+  font-size: 0.8125em; /* relative for scaling */
   color: var(--foreground-muted);
   font-weight: 500;
   margin-bottom: 1rem;
@@ -672,12 +714,12 @@ a:focus-visible {
 .archive-item__date {
   font-weight: 700;
   letter-spacing: -0.01em;
-  font-size: 1.125rem;
+  font-size: 1.125em;
 }
 
 .archive-item__count {
   color: var(--foreground-muted);
-  font-size: 0.875rem;
+  font-size: 0.875em;
   font-weight: 500;
 }
 
@@ -776,12 +818,7 @@ a:focus-visible {
 .edition-layout > *:nth-child(4) { animation-delay: 0.2s; }
 
 /* Width variants (placed after base definitions to win cascade) */
-:root[data-width="narrow"] .site-header__row,
-:root[data-width="narrow"] .site-main,
-:root[data-width="narrow"] .site-footer__inner { max-width: 960px; }
-:root[data-width="normal"] .site-header__row,
-:root[data-width="normal"] .site-main,
-:root[data-width="normal"] .site-footer__inner { max-width: 1200px; }
-:root[data-width="wide"] .site-header__row,
-:root[data-width="wide"] .site-main,
-:root[data-width="wide"] .site-footer__inner { max-width: 1380px; }
+/* Width variants now affect only the primary reading column */
+#main.site-main[data-width="narrow"] { max-width: 960px; }
+#main.site-main[data-width="normal"] { max-width: 1200px; }
+#main.site-main[data-width="wide"] { max-width: 1380px; }

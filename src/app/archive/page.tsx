@@ -26,11 +26,9 @@ export default async function ArchivePage() {
       </header>
       <div className="archive-list" role="list">
         {editions.map((edition) => {
-          const totalItems = edition.sources.reduce((acc, source) => acc + source.items.length, 0);
           return (
             <Link key={edition.slug} href={`/edition/${edition.slug}`} className="archive-item" role="listitem">
               <span className="archive-item__date">{formatEditionDate(edition.date)}</span>
-              <span className="archive-item__count">{totalItems} {t("stories")}</span>
             </Link>
           );
         })}

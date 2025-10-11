@@ -11,6 +11,7 @@ const WIDTH_STORAGE_KEY = "daily-brief-width";
 
 const preferencesInitScript = `
 (function() {
+  // Theme still applies globally on <html>
   try {
     var key = "${THEME_STORAGE_KEY}";
     var stored = window.localStorage.getItem(key);
@@ -20,35 +21,45 @@ const preferencesInitScript = `
   } catch (err) {
     document.documentElement.dataset.theme = "light";
   }
-  try {
-    var fontKey = "${FONT_STORAGE_KEY}";
-    var savedFont = window.localStorage.getItem(fontKey);
-    var allowedFonts = ["modern", "journal", "serif", "mono"];
-    var defaultFont = "modern";
-    var font = allowedFonts.indexOf(savedFont) !== -1 ? savedFont : defaultFont;
-    document.documentElement.dataset.font = font;
-  } catch (err) {
-    document.documentElement.dataset.font = "modern";
+
+  function applyScopedPreferences() {
+    var main = document.getElementById("main");
+    if (!main) return false;
+    try {
+      var fontKey = "${FONT_STORAGE_KEY}";
+      var savedFont = window.localStorage.getItem(fontKey);
+      var allowedFonts = ["modern", "journal", "serif", "mono"];
+      var defaultFont = "modern";
+      var font = allowedFonts.indexOf(savedFont) !== -1 ? savedFont : defaultFont;
+      main.dataset.font = font;
+    } catch (err) {
+      main.dataset.font = "modern";
+    }
+    try {
+      var sizeKey = "${SIZE_STORAGE_KEY}";
+      var savedSize = window.localStorage.getItem(sizeKey);
+      var allowedSizes = ["sm", "md", "lg"];
+      var defaultSize = "md";
+      var size = allowedSizes.indexOf(savedSize) !== -1 ? savedSize : defaultSize;
+      main.dataset.size = size;
+    } catch (err) {
+      main.dataset.size = "md";
+    }
+    try {
+      var widthKey = "${WIDTH_STORAGE_KEY}";
+      var savedWidth = window.localStorage.getItem(widthKey);
+      var allowedWidths = ["narrow", "normal", "wide"];
+      var defaultWidth = "normal";
+      var width = allowedWidths.indexOf(savedWidth) !== -1 ? savedWidth : defaultWidth;
+      main.dataset.width = width;
+    } catch (err) {
+      main.dataset.width = "normal";
+    }
+    return true;
   }
-  try {
-    var sizeKey = "${SIZE_STORAGE_KEY}";
-    var savedSize = window.localStorage.getItem(sizeKey);
-    var allowedSizes = ["sm", "md", "lg"];
-    var defaultSize = "md";
-    var size = allowedSizes.indexOf(savedSize) !== -1 ? savedSize : defaultSize;
-    document.documentElement.dataset.size = size;
-  } catch (err) {
-    document.documentElement.dataset.size = "md";
-  }
-  try {
-    var widthKey = "${WIDTH_STORAGE_KEY}";
-    var savedWidth = window.localStorage.getItem(widthKey);
-    var allowedWidths = ["narrow", "normal", "wide"];
-    var defaultWidth = "normal";
-    var width = allowedWidths.indexOf(savedWidth) !== -1 ? savedWidth : defaultWidth;
-    document.documentElement.dataset.width = width;
-  } catch (err) {
-    document.documentElement.dataset.width = "normal";
+
+  if (!applyScopedPreferences()) {
+    document.addEventListener("DOMContentLoaded", applyScopedPreferences, { once: true });
   }
 })();`;
 
@@ -62,7 +73,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const langCode = lang === "fr" ? "fr" : "en";
 
   return (
-    <html lang={langCode} data-theme="light" data-font="modern" data-size="md" data-width="normal" suppressHydrationWarning>
+    <html lang={langCode} data-theme="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: preferencesInitScript }} />
       </head>
@@ -72,7 +83,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </a>
         <div className="page-shell">
           <SiteHeader title={t("siteTitle")} subtitle={t("siteSubtitle")} fontStorageKey={FONT_STORAGE_KEY} sizeStorageKey={SIZE_STORAGE_KEY} widthStorageKey={WIDTH_STORAGE_KEY} />
-          <main id="main" className="site-main" role="main">
+          <main id="main" className="site-main" role="main" data-font="modern" data-size="md" data-width="normal">
             {children}
           </main>
           <footer className="site-footer" role="contentinfo">
@@ -82,6 +93,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <span className="site-footer__motto">{t("siteSubtitle")}</span>
               </div>
               <p className="site-footer__copy">{t("footerText")}</p>
+              <p className="site-footer__nav"><a href="/archive">{t("viewArchive")}</a></p>
             </div>
           </footer>
         </div>

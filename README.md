@@ -169,14 +169,34 @@ rss-digest/
 The following optional environment variables allow tuning performance and output.
 
 - `FEED_CONCURRENCY` (default 6): Parallel RSS feed fetches.
-- `HYDRATE_CONCURRENCY` (default 4): Concurrent article content hydration (network bound).
-- `SUMMARY_CONCURRENCY` (default 4): Parallel AI summary generations (CPU/network/billing bound).
+- `HYDRATE_CONCURRENCY` (default 6): Concurrent article content hydration (network bound).
+- `HYDRATE_PER_DOMAIN_CONCURRENCY` (default 1, max 3): Limits simultaneous hydration requests hitting the same domain (courtesy + rate-limit avoidance).
+- `SUMMARY_CONCURRENCY` (default 3): Parallel AI summary generations (CPU/network/billing bound).
 - `SUMMARY_RETRIES` (default 3, max 5): Exponential backoff retry attempts for failed or unparseable AI responses.
 - `READING_WPM` (default 210): Words-per-minute used to estimate reading time; validated range 80–500.
+- `INCLUDE_SOURCE_URL_IN_PROMPT` (default true): Set to `false` to omit the original URL from the model prompt (for minimal disclosure environments).
 
 Retry strategy: failed / unparseable summary responses are retried with exponential backoff (500ms, 1s, 2s, 4s…). After exhausting attempts a deterministic fallback summary is emitted so the edition always completes.
 
 Deterministic ordering: even with concurrency, summaries are written in the original feed + article order to keep editions stable across runs.
+
+### Summary Generation Metrics
+
+After running `npm run generate:edition`, the script prints a compact metrics line summarising AI summary outcomes, for example:
+
+```
+ℹ summary-metrics success=22 success_after_retry=4 parse_fail=1 request_error=0 refusal_fallback=1
+```
+
+Metric keys:
+- `success`: Summaries parsed successfully on any attempt.
+- `success_after_retry`: Subset of successes that required >1 attempt (quality / latency signal).
+- `parse_fail`: Model responded but output could not be parsed into abstract + 3 bullets.
+- `request_error`: Transport / timeout errors (before parsing).
+- `refusal_fallback`: Final fallback summaries produced after apparent model refusal messages.
+- `exhausted_fallback`: Fallbacks after non-refusal repeated failures (e.g. persistent parse issues).
+
+Use these to tune `SUMMARY_CONCURRENCY`, `SUMMARY_RETRIES`, model choice, or prompt settings. High `parse_fail` suggests prompt or model drift; elevated `request_error` suggests network or timeout tuning; frequent `refusal_fallback` may merit adjusting content hints or including the source URL (`INCLUDE_SOURCE_URL_IN_PROMPT=true`).
 
 ## Deployment
 

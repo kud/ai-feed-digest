@@ -27,7 +27,7 @@ export const translations = {
     backToLatest: "← Dernière édition",
 
     // Footer
-    footerText: "Créé avec Markdown, résumés OpenCode et Next.js.",
+    footerText: "Revue indépendante générée automatiquement.",
 
     // Date formatting
     locale: "fr-FR",
@@ -65,7 +65,7 @@ export const translations = {
     backToLatest: "← Latest edition",
 
     // Footer
-    footerText: "Built with Markdown editions, OpenCode summaries, and Next.js.",
+    footerText: "Independent automated brief.",
 
     // Date formatting
     locale: "en-GB",

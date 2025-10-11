@@ -8,7 +8,7 @@ import YAML from "yaml";
 import { htmlToText } from "html-to-text";
 import { z } from "zod";
 import ora, { type Ora } from "ora";
-import { generateBriefingDocument, generateEditionNarrative, summariseWithOC, warmupOpenCodeClient } from "../src/summarise-with-oc";
+import { generateBriefingDocument, generateEditionNarrative, summariseWithOC, warmupOpenCodeClient, getSummaryMetrics } from "../src/summarise-with-oc";
 import {
   DigestConfig,
   EditionBriefing,
@@ -17,7 +17,7 @@ import {
   EditionSource,
   SummariseInput
 } from "../src/lib/types";
-import { EDITIONS_DIR, CONFIG_PATH, FEEDS_CONFIG_PATH, SEEN_CACHE_PATH } from "../src/lib/constants";
+import { EDITIONS_DIR, CONFIG_PATH, FEEDS_CONFIG_PATH, SEEN_CACHE_PATH, SUMMARY_METRICS_PATH } from "../src/lib/constants";
 
 const rssParser = new Parser({
   timeout: 10_000,
@@ -60,6 +60,12 @@ const HYDRATE_CONCURRENCY = (() => {
   const v = Number(process.env.HYDRATE_CONCURRENCY);
   if (Number.isFinite(v) && v >= 1) return Math.min(v, 12);
   return 6; // default
+})();
+// Per-domain hydration concurrency to avoid hammering a single host (env HYDRATE_PER_DOMAIN_CONCURRENCY=2 etc.)
+const HYDRATE_PER_DOMAIN_CONCURRENCY = (() => {
+  const v = Number(process.env.HYDRATE_PER_DOMAIN_CONCURRENCY);
+  if (Number.isFinite(v) && v >= 1) return Math.min(v, 3);
+  return 1; // safest default
 })();
 // Concurrency for RSS feed fetching (env FEED_CONCURRENCY=10 etc.)
 const FEED_CONCURRENCY = (() => {
@@ -273,6 +279,17 @@ async function main() {
     await writeSeenCache(seen);
     spinner.succeed(`Edition file written`);
 
+    // Persist summary metrics JSON artifact
+    try {
+      const metrics = getSummaryMetrics();
+      await fs.mkdir(path.dirname(SUMMARY_METRICS_PATH), { recursive: true });
+      await fs.writeFile(SUMMARY_METRICS_PATH, JSON.stringify({ date: editionDate, generatedAt: new Date().toISOString(), model: config.opencode.model, metrics }, null, 2) + '\n', 'utf8');
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`[metrics] Failed to write metrics: ${(err as Error).message}`);
+      }
+    }
+
     const minutes = Math.floor(generationTimeSeconds / 60);
     const seconds = generationTimeSeconds % 60;
     const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
@@ -282,6 +299,16 @@ async function main() {
     );
     console.log(`  ${COLORS.detail}${GLYPHS.folder} ${path.relative(process.cwd(), targetEditionPath)}${COLORS.reset}`);
     console.log(`  ${COLORS.detail}${GLYPHS.stats} ${totalItems} articles from ${sourcesWithContent.length} sources${COLORS.reset}`);
+    // Summary metrics breakdown
+    const metrics = getSummaryMetrics();
+    const metricKeys = Object.keys(metrics);
+    if (metricKeys.length) {
+      const ordered = ['success','success_after_retry','parse_fail','request_error','refusal_fallback','exhausted_fallback'];
+      const lines = ordered.filter(k => metrics[k]).map(k => `${k}=${metrics[k]}`);
+      const others = metricKeys.filter(k => !ordered.includes(k)).sort();
+      for (const k of others) { lines.push(`${k}=${metrics[k]}`); }
+      console.log(`  ${COLORS.detail}${GLYPHS.info} summary-metrics ${lines.join(' ')}${COLORS.reset}`);
+    }
     console.log(`  ${COLORS.detail}${GLYPHS.timer} Generated in ${timeStr}${COLORS.reset}\n`);
     
     process.exit(0);
@@ -424,15 +451,58 @@ function pickFreshItems(
 }
 
 async function hydrateArticleTexts(stories: PendingStory[], config: DigestConfig, spinner?: Ora): Promise<void> {
+  if (stories.length === 0) return;
   let completed = 0;
-  await runPool(stories, HYDRATE_CONCURRENCY, async (story) => {
-    if (spinner) {
-      spinner.text = `Fetching full article content (${completed + 1}/${stories.length}) - ${story.item.title.slice(0, 50)}...`;
+  const perDomainActive = new Map<string, number>();
+  let globalActive = 0;
+  const queue = [...stories];
+
+  function nextEligibleIndex(): number {
+    if (globalActive >= HYDRATE_CONCURRENCY) return -1;
+    for (let i = 0; i < queue.length; i++) {
+      const story = queue[i];
+      let host = "unknown";
+      try { host = new URL(story.item.url).hostname; } catch { /* ignore */ }
+      const activeForHost = perDomainActive.get(host) || 0;
+      if (activeForHost < HYDRATE_PER_DOMAIN_CONCURRENCY) {
+        return i;
+      }
     }
-    story.text = await resolveItemText(story.item, config);
-    completed++;
+    return -1;
+  }
+
+  await new Promise<void>((resolve) => {
+    const maybeDispatch = () => {
+      while (true) {
+        const idx = nextEligibleIndex();
+        if (idx === -1) break;
+        const story = queue.splice(idx, 1)[0];
+        let host = "unknown";
+        try { host = new URL(story.item.url).hostname; } catch { /* ignore */ }
+        perDomainActive.set(host, (perDomainActive.get(host) || 0) + 1);
+        globalActive++;
+        if (spinner) {
+          spinner.text = `Fetching full article content (${completed + 1}/${stories.length}) - ${story.item.title.slice(0, 50)}...`;
+        }
+        resolveItemText(story.item, config)
+          .then(text => { story.text = text; })
+          .catch(() => { story.text = story.text || ""; })
+          .finally(() => {
+            completed++;
+            perDomainActive.set(host, (perDomainActive.get(host) || 1) - 1);
+            globalActive--;
+            if (completed >= stories.length) {
+              resolve();
+              return;
+            }
+            maybeDispatch();
+          });
+      }
+    };
+    maybeDispatch();
   });
 }
+
 
 async function summariseStories(
   stories: PendingStory[],

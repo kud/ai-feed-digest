@@ -69,26 +69,29 @@ export function ReaderPreferences({ fontStorageKey, sizeStorageKey, widthStorage
 
   // Sync dataset + animate on changes (ensures reliability even if handler missed)
   useEffect(() => {
-    const root = document.documentElement;
-    root.dataset.font = font;
-    root.classList.add("font-transition");
-    const id = window.setTimeout(() => root.classList.remove("font-transition"), 200);
+    const main = document.getElementById("main");
+    if (!main) return;
+    main.dataset.font = font;
+    main.classList.add("font-transition");
+    const id = window.setTimeout(() => main.classList.remove("font-transition"), 200);
     return () => window.clearTimeout(id);
   }, [font]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.dataset.size = size;
-    root.classList.add("font-transition");
-    const id = window.setTimeout(() => root.classList.remove("font-transition"), 200);
+    const main = document.getElementById("main");
+    if (!main) return;
+    main.dataset.size = size;
+    main.classList.add("font-transition");
+    const id = window.setTimeout(() => main.classList.remove("font-transition"), 200);
     return () => window.clearTimeout(id);
   }, [size]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.dataset.width = width;
-    root.classList.add("font-transition");
-    const id = window.setTimeout(() => root.classList.remove("font-transition"), 200);
+    const main = document.getElementById("main");
+    if (!main) return;
+    main.dataset.width = width;
+    main.classList.add("font-transition");
+    const id = window.setTimeout(() => main.classList.remove("font-transition"), 200);
     return () => window.clearTimeout(id);
   }, [width]);
 

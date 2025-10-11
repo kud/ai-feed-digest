@@ -28,28 +28,42 @@ export async function summariseWithOC(
   const maxAttempts = Number.isFinite(Number(process.env.SUMMARY_RETRIES)) ? Math.min(Math.max(1, Number(process.env.SUMMARY_RETRIES)), 5) : 3;
   const baseDelay = 500;
   let attempt = 0;
+  let lastRefusal = false;
   while (attempt < maxAttempts) {
     attempt++;
+    // Adaptive prompt tweak: if previous attempt looked like refusal, we still use base builder (already hardened)
     const prompt = buildOpenCodePrompt(input, config.language);
     const timeoutMs = config.opencode.timeout_ms;
     try {
       const text: string = await withTimeout(requestCompletion(prompt, config) as Promise<string>, timeoutMs);
       if (text) {
-        try {
-          const parsed = parseOpenCodeOutput(text);
-          return { ...parsed, via: "opencode", engine: config.opencode.model };
-        } catch (parseError) {
+        const cleaned = normaliseModelOutput(text);
+        if (isRefusal(cleaned)) {
+          lastRefusal = true;
           if (process.env.NODE_ENV !== "production") {
-            const raw = text.trim();
-            const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
-            const bulletLines = lines.filter(l => /^[-*•]\s+/.test(l));
-            const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
-            const preview = raw.replace(/\s+/g, ' ').slice(0, 280);
-            console.warn(`[summarise] Parse failure attempt ${attempt}/${maxAttempts} title="${input.title}" domain=${domain}: ${(parseError as Error).message}. bullets=${bulletLines.length} preview="${preview}${raw.length > 280 ? '…' : ''}"`);
+            console.warn(`[summarise] Refusal-style content attempt ${attempt}/${maxAttempts} title="${input.title}" snippet="${cleaned.slice(0,140)}${cleaned.length>140?'…':''}"`);
+          }
+        } else {
+          try {
+            const parsed = parseOpenCodeOutput(cleaned);
+            incrementMetric('success');
+            if (attempt > 1) incrementMetric('success_after_retry');
+            return { ...parsed, via: "opencode", engine: config.opencode.model };
+          } catch (parseError) {
+            incrementMetric('parse_fail');
+            if (process.env.NODE_ENV !== "production") {
+              const raw = cleaned.trim();
+              const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
+              const bulletLines = lines.filter(l => /^[-*•]\s+/.test(l));
+              const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
+              const preview = raw.replace(/\s+/g, ' ').slice(0, 280);
+              console.warn(`[summarise] Parse failure attempt ${attempt}/${maxAttempts} title="${input.title}" domain=${domain}: ${(parseError as Error).message}. bullets=${bulletLines.length} preview="${preview}${raw.length > 280 ? '…' : ''}"`);
+            }
           }
         }
       }
     } catch (error) {
+      incrementMetric('request_error');
       if (process.env.NODE_ENV !== "production") {
         const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
         console.warn(`[summarise] Request error attempt ${attempt}/${maxAttempts} title="${input.title}" domain=${domain}: ${(error as Error).message}`);
@@ -62,11 +76,41 @@ export async function summariseWithOC(
       await new Promise(r => setTimeout(r, delay));
     }
   }
+  incrementMetric(lastRefusal ? 'refusal_fallback' : 'exhausted_fallback');
   return fallbackSummarise(input);
 }
 
 function minutesForWords(words: number, target: number): number {
   return Math.max(target, Math.ceil(words / READING_WPM));
+}
+
+interface SummaryMetrics { [k: string]: number; }
+const summaryMetrics: SummaryMetrics = {};
+function incrementMetric(key: string) { summaryMetrics[key] = (summaryMetrics[key] || 0) + 1; }
+export function getSummaryMetrics() { return { ...summaryMetrics }; }
+
+function normaliseModelOutput(raw: string): string {
+  // Collapse repeated whitespace and normalise bullet markers to '- '
+  return raw
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line: string) => line.replace(/^\s*[•*]\s+/, '- '))
+    .join('\n')
+    .trim();
+}
+
+function isRefusal(text: string): boolean {
+  const refusalPatterns = [
+    /cannot (access|browse|fetch)/i,
+    /as an? (ai|language) model/i,
+    /do not have (access|the ability)/i,
+    /i (can't|cannot) (open|visit)/i,
+    /no (content|article) provided/i,
+    /provide (more )?information/i,
+    /not (enough|sufficient) (information|context)/i,
+    /sorry,? i/i
+  ];
+  return refusalPatterns.some(rx => rx.test(text));
 }
 
 function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine"> {
@@ -100,34 +144,57 @@ function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine
     throw new Error("OpenCode response contains an empty summary line");
   }
 
-  const bulletCandidates = lines.filter((line) => /^[-*•]\s*/.test(line));
+  // Accept standard bullets, asterisk, middle dot, or numbered list patterns
+  let bulletCandidates = lines.filter((line) => /^(?:[-*•]|\d+\.)\s+/.test(line));
   const bullets: string[] = bulletCandidates
-    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .map((line) => line.replace(/^(?:[-*•]|\d+\.)\s+/, "").trim())
     .filter((line) => line.length > 0);
 
-  if (bullets.length < 3) {
-    const residual = lines.filter((line) => !/^[-*•]\s*/.test(line));
-    for (const extra of residual) {
-      const segments = extra.split(/(?<=[\.\!\?])\s+/).map((segment) => segment.trim());
-      for (const segment of segments) {
-        if (segment.length > 0) {
-          bullets.push(segment);
-        }
-        if (bullets.length >= 3) {
-          break;
-        }
-      }
-      if (bullets.length >= 3) {
-        break;
-      }
+  // Handle compressed single-line variants like "1) ... 2) ... 3) ..." or semicolon-separated list
+  if (bullets.length === 0) {
+    const joined = lines.join(' ');
+    // Pattern: sentence-like segments separated by ';'
+    if (/;/.test(joined)) {
+      joined.split(/;+/).forEach(seg => {
+        const s = seg.trim().replace(/^[0-9]+[\).:-]\s*/, '');
+        if (s) bullets.push(s);
+      });
     }
   }
 
+  // Fallback: mine residual lines for sentence segments
+  if (bullets.length < 3) {
+    const residual = lines.filter((line) => !/^(?:[-*•]|\d+\.)\s+/.test(line));
+    for (const extra of residual) {
+      const segments = extra.split(/(?<=[\.!?])\s+/).map((segment) => segment.trim());
+      for (const segment of segments) {
+        if (segment.length > 0 && !bullets.includes(segment)) {
+          bullets.push(segment);
+        }
+        if (bullets.length >= 3) break;
+      }
+      if (bullets.length >= 3) break;
+    }
+  }
+
+  // Final synthesis: derive from abstract sentences if still insufficient
+  if (bullets.length < 3) {
+    const abstractSegments = abstract.split(/(?<=[\.!?])\s+/).map(s => s.trim()).filter(Boolean);
+    for (const seg of abstractSegments) {
+      if (!bullets.includes(seg)) bullets.push(seg);
+      if (bullets.length >= 3) break;
+    }
+  }
+
+  // Enforce at least three or throw
   if (bullets.length < 3) {
     throw new Error("OpenCode response did not yield three bullet points");
   }
 
-  return { abstract, bullets: bullets.slice(0, 3) };
+  // Normalise bullet length (hard cap)
+  const normalised = bullets.slice(0, 3).map(b => b.length > 240 ? b.slice(0, 239).trim() + '…' : b);
+
+  return { abstract, bullets: normalised };
 }
 
 export async function generateEditionNarrative(
@@ -144,7 +211,7 @@ export async function generateEditionNarrative(
   try {
     const text = await withTimeout(requestCompletion(prompt, config), timeoutMs);
     if (text) {
-      return text.trim();
+      return ensureMarkdownLinks(text.trim(), items);
     }
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
@@ -170,9 +237,14 @@ export async function generateBriefingDocument(
     const text = await withTimeout(requestCompletion(prompt, config), timeoutMs);
     if (text) {
         const parsed = parseBriefingJson(text, config);
-      if (parsed) {
-        return parsed;
-      }
+        if (parsed) {
+          return {
+            ...parsed,
+            overview: ensureMarkdownLinks(parsed.overview, items),
+            background: ensureMarkdownLinks(parsed.background, items),
+            analysis: ensureMarkdownLinks(parsed.analysis, items)
+          };
+        }
     }
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
@@ -184,6 +256,28 @@ export async function generateBriefingDocument(
   return fallbackBriefing(items, config, narrative);
 }
 
+function ensureMarkdownLinks(text: string, items: EditionNarrativeItem[]): string {
+  // Build lookup map by normalised title
+  const map = new Map<string, EditionNarrativeItem>();
+  for (const it of items) {
+    const key = normaliseTitle(it.title);
+    if (!map.has(key)) map.set(key, it);
+  }
+  // Pattern captures titles in French quotes followed by optional comma/space then opening parenthesis feed and possibly closing parenthesis.
+  // Example: « Title Here », selon Le Monde (« Title Here »), Le Monde ("Title Here") etc.
+  return text.replace(/[«“"]([^»”"]{8,120})[»”"][\s]*\(([^)]+)\)/g, (match, rawTitle, feedPart) => {
+    const key = normaliseTitle(rawTitle);
+    const item = map.get(key);
+    if (!item) return match; // leave unchanged
+    // If already contains ](http we assume it's already a link
+    if (/\[[^\]]+\]\(https?:\/\//.test(match)) return match;
+    return `[${rawTitle}](${item.url}) (${item.feed})`;
+  });
+}
+
+function normaliseTitle(title: string): string {
+  return title.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9éèêàùîïôç'\- ]+/gi, '').trim();
+}
 function fallbackSummarise(input: SummariseInput): SummariseResult {
   const abstract = enforceCharLimit(
     `Résumé automatique indisponible. Consultez l’article original pour davantage de détails : ${input.title}.`,
@@ -274,9 +368,9 @@ function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing |
       analysis,
       timeline,
       fastFacts,
-        furtherReading,
-        readingMinutes: readingMinutes ?? minutesForWords(words, config.digest.target_reading_minutes),
-        wordCount: wordCount ?? words
+      furtherReading,
+      readingMinutes: readingMinutes ?? minutesForWords(words, config.digest.target_reading_minutes),
+      wordCount: wordCount ?? words
     };
   } catch {
     return null;
