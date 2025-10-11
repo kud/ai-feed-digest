@@ -50,6 +50,23 @@ function EditionView({ edition }: { edition: EditionDocument }) {
     ? formatGeneratedAt(edition.generatedAt, edition.timezone)
     : null;
 
+  // Split edition.title into main + date part using preferred separators
+  let mainTitle = edition.title;
+  let datePart: string | null = null;
+  if (mainTitle.includes(" — ")) {
+    const parts = mainTitle.split(" — ");
+    if (parts.length === 2) {
+      mainTitle = parts[0];
+      datePart = parts[1] || null;
+    }
+  } else if (mainTitle.includes(" - ")) {
+    const parts = mainTitle.split(" - ");
+    if (parts.length === 2) {
+      mainTitle = parts[0];
+      datePart = parts[1] || null;
+    }
+  }
+
   return (
     <article aria-labelledby="edition-title" className="edition-layout">
       <header>
@@ -63,7 +80,13 @@ function EditionView({ edition }: { edition: EditionDocument }) {
           </Link>
         </div>
         <h1 id="edition-title" className="edition-heading">
-          {edition.title}
+          <span className="edition-heading__main">{mainTitle}</span>
+          {datePart && (
+            <>
+              <span className="edition-heading__sep">—</span>
+              <span className="edition-heading__date">{datePart}</span>
+            </>
+          )}
         </h1>
       </header>
 
