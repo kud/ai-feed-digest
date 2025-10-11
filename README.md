@@ -1,5 +1,17 @@
 # AI Feed Digest
 
+<p align="left">
+  <a href="#"><img alt="Project Status" src="https://img.shields.io/badge/status-experimental-purple" /></a>
+  <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue" /></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green" /></a>
+  <a href="https://nodejs.org/en"><img alt="Node.js" src="https://img.shields.io/badge/node-%3E=18-43853d?logo=node.js&logoColor=white" /></a>
+  <a href="https://nextjs.org"><img alt="Next.js" src="https://img.shields.io/badge/Next.js-15-black?logo=next.js" /></a>
+  <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white" /></a>
+  <a href="#"><img alt="AI" src="https://img.shields.io/badge/AI-OpenAI%20Compatible-ff6b00" /></a>
+  <a href="https://github.com/kud/ai-feed-digest/pulls"><img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" /></a>
+  <a href="#"><img alt="Maintenance" src="https://img.shields.io/badge/maintained-yes-success" /></a>
+</p>
+
 An AI-powered RSS feed aggregator that generates elegant daily briefings in your language of choice.
 
 ## Features
