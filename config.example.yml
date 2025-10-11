@@ -1,0 +1,13 @@
+timezone: "Europe/London"
+language: "English"
+digest:
+  hour: 8
+  minute: 30
+  max_articles_per_feed: 6
+  max_chars_per_summary: 400
+  min_chars_per_summary: 140
+  target_reading_minutes: 30
+opencode:
+  model: "github-copilot/gpt-4.1"
+  agent: null
+  timeout_ms: 45000
