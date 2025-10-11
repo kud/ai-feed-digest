@@ -10,6 +10,13 @@ import type {
   SummariseResult
 } from "@/lib/types";
 
+// Reading speed (words per minute) override via env READING_WPM
+const READING_WPM = (() => {
+  const v = Number(process.env.READING_WPM);
+  if (Number.isFinite(v) && v >= 80 && v <= 500) return v;
+  return 210; // default average silent reading speed (FR/EN)
+})();
+
 export async function warmupOpenCodeClient(config: DigestConfig): Promise<void> {
   await warmupClient(config);
 }
@@ -18,45 +25,48 @@ export async function summariseWithOC(
   input: SummariseInput,
   config: DigestConfig
 ): Promise<SummariseResult> {
-  const prompt = buildOpenCodePrompt(input, config.language);
-  const timeoutMs = config.opencode.timeout_ms;
-
-  try {
-    const text = await withTimeout(requestCompletion(prompt, config), timeoutMs);
-    if (text) {
-      try {
-        const parsed = parseOpenCodeOutput(text);
-        return {
-          ...parsed,
-          via: "opencode",
-          engine: config.opencode.model
-        };
-      } catch (parseError) {
-        if (process.env.NODE_ENV !== "production") {
-          const raw = text.trim();
-          const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
-          const bulletLines = lines.filter(l => /^[-*•]\s+/.test(l));
-          const domain = (() => {
-            try { return new URL(input.url).hostname; } catch { return "unknown"; }
-          })();
-          const preview = raw.replace(/\s+/g, ' ').slice(0, 280);
-          console.warn(
-            `[summarise] Parse failure for article title="${input.title}" url="${input.url}" domain=${domain} model=${config.opencode.model}: ${(parseError as Error).message}. ` +
-            `Bullet candidates=${bulletLines.length}. Raw preview="${preview}${raw.length > 280 ? '…' : ''}"`
-          );
+  const maxAttempts = Number.isFinite(Number(process.env.SUMMARY_RETRIES)) ? Math.min(Math.max(1, Number(process.env.SUMMARY_RETRIES)), 5) : 3;
+  const baseDelay = 500;
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt++;
+    const prompt = buildOpenCodePrompt(input, config.language);
+    const timeoutMs = config.opencode.timeout_ms;
+    try {
+      const text: string = await withTimeout(requestCompletion(prompt, config) as Promise<string>, timeoutMs);
+      if (text) {
+        try {
+          const parsed = parseOpenCodeOutput(text);
+          return { ...parsed, via: "opencode", engine: config.opencode.model };
+        } catch (parseError) {
+          if (process.env.NODE_ENV !== "production") {
+            const raw = text.trim();
+            const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
+            const bulletLines = lines.filter(l => /^[-*•]\s+/.test(l));
+            const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
+            const preview = raw.replace(/\s+/g, ' ').slice(0, 280);
+            console.warn(`[summarise] Parse failure attempt ${attempt}/${maxAttempts} title="${input.title}" domain=${domain}: ${(parseError as Error).message}. bullets=${bulletLines.length} preview="${preview}${raw.length > 280 ? '…' : ''}"`);
+          }
         }
       }
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
+        console.warn(`[summarise] Request error attempt ${attempt}/${maxAttempts} title="${input.title}" domain=${domain}: ${(error as Error).message}`);
+      }
     }
-  } catch (error) {
-    if (process.env.NODE_ENV !== "production") {
-      const domain = (() => { try { return new URL(input.url).hostname; } catch { return "unknown"; } })();
-      console.warn(
-        `[summarise] OpenCode request failed for title="${input.title}" url="${input.url}" domain=${domain} model=${config.opencode.model}: ${(error as Error).message}`
-      );
+    if (attempt < maxAttempts) {
+      const base = baseDelay * Math.pow(2, attempt - 1);
+      const jitter = base * (0.1 + Math.random() * 0.2); // 10%-30% extra
+      const delay = Math.round(base + jitter);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
-
   return fallbackSummarise(input);
+}
+
+function minutesForWords(words: number, target: number): number {
+  return Math.max(target, Math.ceil(words / READING_WPM));
 }
 
 function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine"> {
@@ -159,7 +169,7 @@ export async function generateBriefingDocument(
   try {
     const text = await withTimeout(requestCompletion(prompt, config), timeoutMs);
     if (text) {
-      const parsed = parseBriefingJson(text);
+        const parsed = parseBriefingJson(text, config);
       if (parsed) {
         return parsed;
       }
@@ -207,7 +217,7 @@ function fallbackNarrative(items: EditionNarrativeItem[]): string {
     .join(" ");
 }
 
-function parseBriefingJson(raw: string): EditionBriefing | null {
+function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing | null {
   try {
     const jsonStart = raw.indexOf("{");
     const jsonEnd = raw.lastIndexOf("}");
@@ -248,7 +258,7 @@ function parseBriefingJson(raw: string): EditionBriefing | null {
     const background = String(candidate.background ?? "").trim();
     const analysis = String(candidate.analysis ?? "").trim();
     const readingMinutes = Number.isFinite(candidate.readingMinutes)
-      ? Math.max(15, Math.round(Number(candidate.readingMinutes)))
+      ? Math.max(1, Math.round(Number(candidate.readingMinutes)))
       : undefined;
     const wordCount = Number.isFinite(candidate.wordCount) ? Number(candidate.wordCount) : undefined;
 
@@ -264,9 +274,9 @@ function parseBriefingJson(raw: string): EditionBriefing | null {
       analysis,
       timeline,
       fastFacts,
-      furtherReading,
-      readingMinutes: readingMinutes ?? Math.max(15, Math.ceil(words / 210)),
-      wordCount: wordCount ?? words
+        furtherReading,
+        readingMinutes: readingMinutes ?? minutesForWords(words, config.digest.target_reading_minutes),
+        wordCount: wordCount ?? words
     };
   } catch {
     return null;
@@ -306,10 +316,17 @@ function fallbackBriefing(
   const analysis = generateAnalysisParagraph(items);
   const overview = narrative;
 
-  const wordCount = [overview, background, analysis]
+  const coreWordCount = [overview, background, analysis]
     .join(" \n")
     .split(/\s+/)
     .filter(Boolean).length;
+  // Include abstracts + bullets in extended reading estimate so large editions show higher minutes.
+  const supplementalWords = items
+    .flatMap(i => [i.summary.abstract, ...i.summary.bullets])
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+  const effectiveWordCount = coreWordCount + supplementalWords;
 
   return {
     overview,
@@ -318,8 +335,8 @@ function fallbackBriefing(
     timeline,
     fastFacts: facts,
     furtherReading: readings,
-    readingMinutes: Math.max(15, Math.ceil(wordCount / 200)),
-    wordCount
+    readingMinutes: minutesForWords(effectiveWordCount, config.digest.target_reading_minutes),
+    wordCount: coreWordCount
   };
 }
 
@@ -354,8 +371,39 @@ function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: st
   if (items.length === 0) {
     return "";
   }
-  const first = items[0];
-  return `Les ${items.length} articles agrégés aujourd’hui convergent autour de « ${first.title} » ([source](${first.url})). Les données ont été harmonisées pour le fuseau ${timezone} avec vérification croisée des faits clés.`;
+  const titles = items.slice(0, 12).map(i => i.title);
+  const textCorpus = items
+    .slice(0, 24)
+    .flatMap(i => [i.summary.abstract, ...i.summary.bullets])
+    .join(' ')
+    .toLowerCase();
+  // Simple keyword extraction: frequency of tokens excluding short/common stopwords
+  const stop = new Set(['the','a','an','and','or','of','to','in','on','for','avec','les','des','une','un','le','la','et','de','du','dans','sur','par','que','qui','pour']);
+  const freq: Record<string, number> = {};
+  for (const token of textCorpus.split(/[^a-z0-9éèêàùîïôç]+/i)) {
+    const t = token.trim();
+    if (t.length < 4) continue;
+    if (stop.has(t)) continue;
+    freq[t] = (freq[t] || 0) + 1;
+  }
+  const topKeywords = Object.entries(freq)
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 6)
+    .map(([k]) => k)
+    .filter(Boolean);
+  // Representative distinct titles (avoid near duplicates)
+  const distinct: string[] = [];
+  const seen = new Set<string>();
+  for (const t of titles) {
+    const key = t.toLowerCase().replace(/[^a-z0-9éèêàùîïôç ]+/gi, '').trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(t);
+    if (distinct.length >= 4) break;
+  }
+  const sampleList = distinct.map(t => `« ${t} »`).join(', ');
+  const keywordList = topKeywords.slice(0,4).join(', ');
+  return `Panorama de ${items.length} articles. Thèmes saillants: ${keywordList || 'divers'}. Exemples: ${sampleList}${distinct.length < items.length ? ', …' : ''}.`;
 }
 
 function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {

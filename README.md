@@ -164,6 +164,20 @@ rss-digest/
 4. **Generate** - Creates markdown files with metadata and content
 5. **Display** - Next.js app renders editions with beautiful formatting
 
+## Environment Variables
+
+The following optional environment variables allow tuning performance and output.
+
+- `FEED_CONCURRENCY` (default 6): Parallel RSS feed fetches.
+- `HYDRATE_CONCURRENCY` (default 4): Concurrent article content hydration (network bound).
+- `SUMMARY_CONCURRENCY` (default 4): Parallel AI summary generations (CPU/network/billing bound).
+- `SUMMARY_RETRIES` (default 3, max 5): Exponential backoff retry attempts for failed or unparseable AI responses.
+- `READING_WPM` (default 210): Words-per-minute used to estimate reading time; validated range 80–500.
+
+Retry strategy: failed / unparseable summary responses are retried with exponential backoff (500ms, 1s, 2s, 4s…). After exhausting attempts a deterministic fallback summary is emitted so the edition always completes.
+
+Deterministic ordering: even with concurrency, summaries are written in the original feed + article order to keep editions stable across runs.
+
 ## Deployment
 
 Build the application:

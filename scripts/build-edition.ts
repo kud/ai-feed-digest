@@ -61,7 +61,12 @@ const HYDRATE_CONCURRENCY = (() => {
   if (Number.isFinite(v) && v >= 1) return Math.min(v, 12);
   return 6; // default
 })();
-
+// Concurrency for RSS feed fetching (env FEED_CONCURRENCY=10 etc.)
+const FEED_CONCURRENCY = (() => {
+  const v = Number(process.env.FEED_CONCURRENCY);
+  if (Number.isFinite(v) && v >= 1) return Math.min(v, 16);
+  return 6; // default
+})();
 
 function logInfo(icon: string, message: string) {
   console.log(`${COLORS.info}${icon}${COLORS.reset} ${message}`);
@@ -181,47 +186,47 @@ async function main() {
     spinner = ora(`Fetching RSS feeds (0/${config.feeds.length})`).start();
     let feedsProcessed = 0;
     let totalFreshItems = 0;
-    
-    for (const feed of config.feeds) {
+
+    // Fetch feeds concurrently, but build pendingStories afterward in deterministic feed order.
+    interface FeedResult { freshItems: ReturnType<typeof pickFreshItems>; feedDead: boolean; rawCount: number; }
+    const feedResults: FeedResult[] = new Array(config.feeds.length);
+
+    await runPool(config.feeds, FEED_CONCURRENCY, async (feed, idx) => {
       let feedItems: Awaited<ReturnType<typeof fetchFeedItems>> = [];
+      let freshItems: ReturnType<typeof pickFreshItems> = [];
+      let feedDead = false;
       try {
-        spinner.text = `Fetching "${feed.title}" (${feedsProcessed + 1}/${config.feeds.length})`;
+        if (spinner) spinner.text = `Fetching "${feed.title}" (${feedsProcessed + 1}/${config.feeds.length})`;
         feedItems = await fetchFeedItems(feed.url);
+        freshItems = pickFreshItems(feedItems, seen, collectionWindow, config.digest.max_articles_per_feed, { ignoreSeen: forceRegeneration });
       } catch (error) {
+        feedDead = true;
+      } finally {
         feedsProcessed++;
-        spinner.text = `Fetching RSS feeds (${feedsProcessed}/${config.feeds.length}) - ${totalFreshItems} new items`;
-        console.log(`  ${COLORS.warn}${GLYPHS.warn} Feed appears dead: "${feed.title}"${COLORS.reset}`);
-        continue;
+        totalFreshItems += freshItems.length;
+        feedResults[idx] = { freshItems, feedDead, rawCount: feedItems.length };
+        if (spinner) spinner.text = `Fetching RSS feeds (${feedsProcessed}/${config.feeds.length}) - ${totalFreshItems} new items`;
+        if (feedDead) {
+          console.log(`  ${COLORS.warn}${GLYPHS.warn} Feed appears dead: "${feed.title}"${COLORS.reset}`);
+        }
       }
-      
-      const freshItems = pickFreshItems(feedItems, seen, collectionWindow, config.digest.max_articles_per_feed, {
-        ignoreSeen: forceRegeneration
-      });
-      
-      totalFreshItems += freshItems.length;
-      feedsProcessed++;
-      spinner.text = `Fetching RSS feeds (${feedsProcessed}/${config.feeds.length}) - ${totalFreshItems} new items`;
+    });
 
-      if (freshItems.length === 0) {
-        continue;
-      }
-
+    // Build pending stories in original feed list order for deterministic downstream ordering.
+    feedResults.forEach((result, idx) => {
+      const feed = config.feeds[idx];
+      if (!result || result.freshItems.length === 0) return;
       const bucket: EditionItem[] = [];
-      sources.push({
-        feed: feed.title,
-        items: bucket
-      });
-
-      for (const item of freshItems) {
+      sources.push({ feed: feed.title, items: bucket });
+      for (const item of result.freshItems) {
         pendingStories.push({
           feedTitle: feed.title,
           feedUrl: feed.url,
           item,
-          bucket
+            bucket
         });
       }
-    }
-    
+    });
     spinner.succeed(`Fetched ${config.feeds.length} feeds - found ${totalFreshItems} new items`);
 
     if (pendingStories.length === 0) {
@@ -437,8 +442,9 @@ async function summariseStories(
   spinner?: Ora
 ): Promise<void> {
   let completed = 0;
+  const orderMap = new Map(stories.map((s, i) => [s.item.url, i] as const));
   // We purposely mutate buckets in-place to retain grouping by feed.
-  await runPool(stories, SUMMARY_CONCURRENCY, async (story, index) => {
+  await runPool(stories, SUMMARY_CONCURRENCY, async (story) => {
     const text = story.text ?? "";
     const summaryInput = toSummariseInput(story.item, config, text);
     const summary = await summariseWithOC(summaryInput, config);
@@ -463,8 +469,8 @@ async function summariseStories(
       spinner.text = `Generating AI summaries (${completed}/${stories.length}) - ${story.item.title.slice(0, 50)}...`;
     }
   });
-  // Narrative order currently reflects completion order; if deterministic ordering is required,
-  // we could sort narrativeStories by original index here using a captured index field.
+  // Deterministic ordering: reflect original pendingStories order regardless of completion timing.
+  narrativeStories.sort((a, b) => (orderMap.get(a.url)! - orderMap.get(b.url)!));
 }
 
 async function runPool<T>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
