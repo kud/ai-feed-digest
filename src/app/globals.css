@@ -574,10 +574,10 @@ a:focus-visible {
 /* Hero edition heading */
 .edition-heading {
   font-size: clamp(2.1rem, 3.9vw, 3rem);
-  margin: 0 0 1.75rem;
+  margin: 0 0 0.1rem; /* ultra-ultra tight gap */
   font-weight: 800;
   letter-spacing: -0.03em;
-  line-height: 1.08;
+  line-height: 1.03; /* slightly tighter line-height */
   position: relative;
 }
 .edition-heading__main {
@@ -600,13 +600,21 @@ a:focus-visible {
   content: "";
   position: absolute;
   left: 0;
-  bottom: -0.6rem;
+  bottom: -0.45rem;
   height: 2px;
-  width: 70px;
+  width: 60px;
   background: linear-gradient(90deg,var(--accent) 0%,var(--accent-hover) 100%);
   border-radius: 2px;
   opacity: 0.9;
 }
+
+/* Reduce the vertical gap between edition heading and the first section heading */
+.edition-heading + .markdown h2:first-child {
+  margin-top: 0.8rem; /* minimal gap below heading */
+}
+
+/* Reduce the vertical gap between edition heading and the first section heading */
+undefined
 
 .section-heading {
   display: flex;
@@ -676,7 +684,7 @@ a:focus-visible {
   font-size: 0.8125em; /* relative for scaling */
   color: var(--foreground-muted);
   font-weight: 500;
-  margin-bottom: 1rem;
+  margin-bottom: 1.85rem; /* increased gap before edition heading */
 }
 
 .entry-meta > span:not(:last-child)::after {

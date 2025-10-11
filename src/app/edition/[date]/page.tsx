@@ -57,15 +57,15 @@ function EditionView({ edition }: { edition: EditionDocument }) {
     const parts = mainTitle.split(" — ");
     if (parts.length === 2) {
       mainTitle = parts[0];
-      datePart = parts[1] || null;
     }
   } else if (mainTitle.includes(" - ")) {
     const parts = mainTitle.split(" - ");
     if (parts.length === 2) {
       mainTitle = parts[0];
-      datePart = parts[1] || null;
     }
   }
+  // Always show full localized date (ignore any abbreviated part in title)
+  datePart = formatEditionDate(edition.date);
 
   return (
     <article aria-labelledby="edition-title" className="edition-layout">
