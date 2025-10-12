@@ -1,13 +1,13 @@
-import type { Metadata } from "next";
-import "./globals.css";
-import { ReactNode } from "react";
-import { SiteHeader } from "@/components/site-header";
-import { t, getLanguage } from "@/lib/i18n";
+import type { Metadata } from "next"
+import "./globals.css"
+import { ReactNode } from "react"
+import { SiteHeader } from "@/components/site-header"
+import { t, getLanguage } from "@/lib/i18n"
 
-const THEME_STORAGE_KEY = "daily-brief-theme";
-const FONT_STORAGE_KEY = "daily-brief-font";
-const SIZE_STORAGE_KEY = "daily-brief-size";
-const WIDTH_STORAGE_KEY = "daily-brief-width";
+const THEME_STORAGE_KEY = "daily-brief-theme"
+const FONT_STORAGE_KEY = "daily-brief-font"
+const SIZE_STORAGE_KEY = "daily-brief-size"
+const WIDTH_STORAGE_KEY = "daily-brief-width"
 
 const preferencesInitScript = `
 (function() {
@@ -61,16 +61,17 @@ const preferencesInitScript = `
   if (!applyScopedPreferences()) {
     document.addEventListener("DOMContentLoaded", applyScopedPreferences, { once: true });
   }
-})();`;
+})();`
 
 export const metadata: Metadata = {
   title: "Revue Quotidienne",
-  description: "Une revue quotidienne d'actualités générée à partir d'éditions Markdown."
-};
+  description:
+    "Une revue quotidienne d'actualités générée à partir d'éditions Markdown.",
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  const lang = getLanguage();
-  const langCode = lang === "fr" ? "fr" : "en";
+  const lang = getLanguage()
+  const langCode = lang === "fr" ? "fr" : "en"
 
   return (
     <html lang={langCode} data-theme="light" suppressHydrationWarning>
@@ -83,24 +84,52 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           {t("skipToContent")}
         </a>
         <div className="page-shell">
-          <SiteHeader title={t("siteTitle")} subtitle={t("siteSubtitle")} fontStorageKey={FONT_STORAGE_KEY} sizeStorageKey={SIZE_STORAGE_KEY} widthStorageKey={WIDTH_STORAGE_KEY} />
-          <main id="main" className="site-main" role="main" data-font="modern" data-size="md" data-width="normal">
+          <SiteHeader
+            title={t("siteTitle")}
+            subtitle={t("siteSubtitle")}
+            fontStorageKey={FONT_STORAGE_KEY}
+            sizeStorageKey={SIZE_STORAGE_KEY}
+            widthStorageKey={WIDTH_STORAGE_KEY}
+          />
+          <main
+            id="main"
+            className="site-main"
+            role="main"
+            data-font="modern"
+            data-size="md"
+            data-width="normal"
+          >
             {children}
           </main>
           <footer className="site-footer" role="contentinfo">
             <div className="site-footer__minimal">
               <p className="site-footer__line">
-                <strong className="site-footer__brand-min" aria-label={t("siteTitle")}>{t("siteTitle")}</strong>
-                <span aria-hidden="true" className="site-footer__divider">·</span>
-                <span className="site-footer__tagline-min">{t("siteSubtitle")}</span>
-                <span className="site-footer__meta-sep" aria-hidden="true">—</span>
-                <span className="site-footer__meta-text">{t("footerText")}</span>
-                <span className="site-footer__meta-link"><a href="/archive">{t("viewArchive")}</a></span>
+                <strong
+                  className="site-footer__brand-min"
+                  aria-label={t("siteTitle")}
+                >
+                  {t("siteTitle")}
+                </strong>
+                <span aria-hidden="true" className="site-footer__divider">
+                  ·
+                </span>
+                <span className="site-footer__tagline-min">
+                  {t("siteSubtitle")}
+                </span>
+                <span className="site-footer__meta-sep" aria-hidden="true">
+                  —
+                </span>
+                <span className="site-footer__meta-text">
+                  {t("footerText")}
+                </span>
+                <span className="site-footer__meta-link">
+                  <a href="/archives">{t("viewArchive")}</a>
+                </span>
               </p>
             </div>
           </footer>
         </div>
       </body>
     </html>
-  );
+  )
 }

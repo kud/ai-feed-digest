@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "next/link"
 
 export default function NotFoundPage() {
   return (
@@ -7,8 +7,8 @@ export default function NotFoundPage() {
       <p className="muted">We couldn&apos;t find that Daily Brief edition.</p>
       <p>
         Head back to the <Link href="/">latest edition</Link> or browse the{" "}
-        <Link href="/archive">archive</Link>.
+        <Link href="/archives">archives</Link>.
       </p>
     </section>
-  );
+  )
 }
