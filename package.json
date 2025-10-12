@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "generate:edition": "./scripts/generate-with-opencode.sh",
-    "generate:edition:raw": "tsx scripts/build-edition.ts"
+    "generate:edition:raw": "tsx scripts/build-edition.ts",
+    "publish": "sh ./scripts/publish.sh"
   },
   "dependencies": {
     "@opencode-ai/sdk": "0.14.7",
