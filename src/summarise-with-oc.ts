@@ -80,8 +80,9 @@ export async function summariseWithOC(
   return fallbackSummarise(input);
 }
 
-function minutesForWords(words: number, target: number): number {
-  return Math.max(target, Math.ceil(words / READING_WPM));
+function minutesForWords(words: number, _target: number): number {
+  // Compute reading minutes purely from words; allow below target.
+  return Math.max(1, Math.ceil(words / READING_WPM));
 }
 
 interface SummaryMetrics { [k: string]: number; }
