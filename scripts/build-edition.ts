@@ -9,6 +9,7 @@ import { htmlToText } from "html-to-text";
 import { z } from "zod";
 import ora, { type Ora } from "ora";
 import { generateBriefingDocument, generateEditionNarrative, summariseWithOC, warmupOpenCodeClient, getSummaryMetrics } from "../src/summarise-with-oc";
+import { detectLanguage } from "../src/opencode-prompt";
 import {
   DigestConfig,
   EditionBriefing,
@@ -99,7 +100,11 @@ const configSchema = z.object({
     max_articles_per_feed: z.number().int().min(1).max(20),
     max_chars_per_summary: z.number().int().min(120).max(1200),
     min_chars_per_summary: z.number().int().min(80).max(600),
-    target_reading_minutes: z.number().int().min(5).max(120)
+    target_words: z.object({
+      overview: z.number().int().min(100).max(2000),
+      background: z.number().int().min(50).max(1000),
+      analysis: z.number().int().min(50).max(1000)
+    })
   }),
   opencode: z.object({
     model: z.string(),
@@ -322,8 +327,7 @@ async function main() {
       sources: sourcesWithContent,
       generatedAt: new Date().toISOString(),
       readingMinutes: briefing.readingMinutes,
-      wordCount: briefing.wordCount,
-      targetReadingMinutes: config.digest.target_reading_minutes
+      wordCount: briefing.wordCount
     };
     
     spinner = ora(`Writing edition markdown file...`).start();
@@ -575,8 +579,18 @@ async function summariseStories(
     const text = story.text ?? "";
     const summaryInput = toSummariseInput(story.item, config, text);
     const summary = await summariseWithOC(summaryInput, config);
+
+    // Use translated title with language marker if available
+    const originalTitle = story.item.title;
+    let displayTitle = originalTitle;
+    if ((summary as any).translatedTitle) {
+      const originalLang = detectLanguage(originalTitle);
+      const langCode = originalLang === "English" ? "en" : originalLang === "French" ? "fr" : originalLang.toLowerCase().slice(0, 2);
+      displayTitle = `${(summary as any).translatedTitle} [${langCode}]`;
+    }
+
     const editionItem: EditionItem = {
-      title: story.item.title,
+      title: displayTitle,
       url: story.item.url,
       publishedAt: story.item.publishedAt,
       summary
@@ -584,7 +598,7 @@ async function summariseStories(
     story.bucket.push(editionItem);
     narrativeStories.push({
       feed: story.feedTitle,
-      title: story.item.title,
+      title: displayTitle,
       url: story.item.url,
       publishedAt: story.item.publishedAt,
       summary
@@ -787,17 +801,19 @@ function composeMarkdown(
   const factsMarkdown = renderList(briefing.fastFacts);
   const readingMarkdown = renderFurtherReading(briefing.furtherReading);
     const sections = [
-      "# L’essentiel du jour",
+      "# L'essentiel du jour",
       briefing.overview.trim(),
-    "## Analyse",
-    briefing.analysis.trim(),
-    "## À surveiller",
-    timelineMarkdown,
-    factsMarkdown ? "## Repères rapides" : "",
-    factsMarkdown,
-    readingMarkdown ? "## Pour aller plus loin" : "",
-    readingMarkdown
-  ].filter((block) => block.length > 0);
+      briefing.background ? "## Contexte" : "",
+      briefing.background ? briefing.background.trim() : "",
+      "## Analyse",
+      briefing.analysis.trim(),
+      "## À surveiller",
+      timelineMarkdown,
+      factsMarkdown ? "## Repères rapides" : "",
+      factsMarkdown,
+      readingMarkdown ? "## Pour aller plus loin" : "",
+      readingMarkdown
+    ].filter((block) => block.length > 0);
 
   return `---\n${yaml}\n---\n\n${sections.join("\n\n")}\n`;
 }
@@ -823,12 +839,12 @@ function renderTimeline(
   timezone: string
 ): string {
   if (!entries.length) {
-    return "Aucun jalon majeur n’a été identifié aujourd’hui.";
+    return "Aucun jalon majeur n'a été identifié aujourd'hui.";
   }
   return entries
     .map((entry) => {
       const stamped = formatHighlightTimestamp(entry.date, timezone);
-      return `- **${stamped} — ${entry.title}** (${entry.source})\n  ${entry.summary}\n  [Lire l'article](${entry.url})`;
+      return `- **${stamped} — ${entry.title}**\n  ${entry.summary} [↗ ${entry.source}](${entry.url})`;
     })
     .join("\n");
 }

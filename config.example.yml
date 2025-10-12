@@ -6,7 +6,10 @@ digest:
   max_articles_per_feed: 6
   max_chars_per_summary: 400
   min_chars_per_summary: 140
-  target_reading_minutes: 30
+  target_words:
+    overview: 500
+    background: 250
+    analysis: 300
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null

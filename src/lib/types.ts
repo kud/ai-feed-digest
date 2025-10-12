@@ -25,7 +25,6 @@ export interface EditionFrontmatter {
   generatedAt?: string;
   readingMinutes?: number;
   wordCount?: number;
-  targetReadingMinutes?: number;
  }
 
 export interface EditionDocument extends EditionFrontmatter {
@@ -71,7 +70,11 @@ export interface DigestConfig {
     max_articles_per_feed: number;
     max_chars_per_summary: number;
     min_chars_per_summary: number;
-    target_reading_minutes: number;
+    target_words: {
+      overview: number;
+      background: number;
+      analysis: number;
+    };
   };
   opencode: {
     model: string;

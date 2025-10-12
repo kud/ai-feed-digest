@@ -48,7 +48,16 @@ export async function summariseWithOC(
             const parsed = parseOpenCodeOutput(cleaned);
             incrementMetric('success');
             if (attempt > 1) incrementMetric('success_after_retry');
-            return { ...parsed, via: "opencode", engine: config.opencode.model };
+            const result: SummariseResult & { translatedTitle?: string } = {
+              abstract: parsed.abstract,
+              bullets: parsed.bullets,
+              via: "opencode",
+              engine: config.opencode.model
+            };
+            if (parsed.translatedTitle) {
+              result.translatedTitle = parsed.translatedTitle;
+            }
+            return result;
           } catch (parseError) {
             incrementMetric('parse_fail');
             if (process.env.NODE_ENV !== "production") {
@@ -80,8 +89,8 @@ export async function summariseWithOC(
   return fallbackSummarise(input);
 }
 
-function minutesForWords(words: number, _target: number): number {
-  // Compute reading minutes purely from words; allow below target.
+function minutesForWords(words: number): number {
+  // Compute reading minutes purely from words.
   return Math.max(1, Math.ceil(words / READING_WPM));
 }
 
@@ -114,7 +123,7 @@ function isRefusal(text: string): boolean {
   return refusalPatterns.some(rx => rx.test(text));
 }
 
-function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine"> {
+function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine"> & { translatedTitle?: string } {
   const lines = raw
     .split("\n")
     .map((line) => line.trim())
@@ -122,6 +131,18 @@ function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine
 
   if (lines.length === 0) {
     throw new Error("Empty OpenCode response");
+  }
+
+  // Check for translated title
+  let translatedTitle: string | undefined;
+  const titleIndex = lines.findIndex((line) =>
+    /^(\*\*|\*)?\s*(TITLE|TITRE)\s*[:\-–—]/i.test(line)
+  );
+  if (titleIndex >= 0) {
+    const titleLine = lines.splice(titleIndex, 1)[0];
+    translatedTitle = titleLine
+      .replace(/^(\*\*|\*)?\s*(TITLE|TITRE)\s*[:\-–—]\s*/i, "")
+      .trim();
   }
 
   const abstractIndex = lines.findIndex((line) =>
@@ -214,8 +235,8 @@ function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine
 
   // Preserve bullet content without hard truncation; model prompt now discourages overlong bullets.
   const normalised = bullets.slice(0, 3);
- 
-  return { abstract, bullets: normalised };
+
+  return { abstract, bullets: normalised, translatedTitle };
 }
 
 export async function generateEditionNarrative(
@@ -251,7 +272,7 @@ export async function generateBriefingDocument(
     return fallbackBriefing(items, config, "Aucune actualité n'a pu être agrégée pour cette édition.");
   }
 
-  const prompt = buildBriefingPrompt(items, config.timezone, config.digest.target_reading_minutes, config.language);
+  const prompt = buildBriefingPrompt(items, config.timezone, config.digest.target_words, config.language);
   const timeoutMs = config.opencode.timeout_ms;
 
   try {
@@ -390,7 +411,7 @@ function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing |
       timeline,
       fastFacts,
       furtherReading,
-      readingMinutes: readingMinutes ?? minutesForWords(words, config.digest.target_reading_minutes),
+      readingMinutes: readingMinutes ?? minutesForWords(words),
       wordCount: wordCount ?? words
     };
   } catch {
@@ -427,7 +448,7 @@ function fallbackBriefing(
       note: enforceCharLimit(item.summary.abstract, 160)
     }));
 
-  const background = ""; // Background section suppressed
+  const background = generateBackgroundParagraph(items, config.timezone);
   const analysis = generateAnalysisParagraph(items);
   const overview = narrative;
 
@@ -450,7 +471,7 @@ function fallbackBriefing(
     timeline,
     fastFacts: facts,
     furtherReading: readings,
-    readingMinutes: minutesForWords(effectiveWordCount, config.digest.target_reading_minutes),
+    readingMinutes: minutesForWords(effectiveWordCount),
     wordCount: coreWordCount
   };
 }
@@ -608,22 +629,25 @@ function generateAnalysisParagraphLegacy(items: EditionNarrativeItem[]): string 
 }
 
 function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
-  if (items.length === 0) return "Aucune analyse approfondie n’est disponible pour cette édition.";
+  if (items.length === 0) return "Aucune analyse approfondie n'est disponible pour cette édition.";
   if (items.length < 6) return generateAnalysisParagraphLegacy(items);
   const themes = extractThemes(items, 5);
   if (themes.length < 2) return generateAnalysisParagraphLegacy(items);
   const feeds = Array.from(new Set(items.map(i => i.feed)));
-  // Build sentences highlighting implications / tensions per theme
-  const sentences: string[] = [];
+
+  // Build proper prose instead of debug tokens
+  const themeDescriptions: string[] = [];
   for (const th of themes.slice(0,3)) {
-    const srcs = th.sources.slice(0,3).join(', ');
-    const titleRefs = th.titles.map(t => `« ${t} »`).join(' / ');
-    sentences.push(`${th.label}: signaux convergents via ${srcs} (${titleRefs})`);
+    const srcs = th.sources.slice(0,2).join(' et ');
+    themeDescriptions.push(`Les développements autour de ${th.label} [↗ ${srcs}](${items.find(i => i.feed === th.sources[0])?.url || ''})`);
   }
-  if (feeds.length > 4 && sentences.length >= 2) {
-    sentences.push(`Diversité de sources: ${feeds.length} flux distincts alimentent ces dynamiques.`);
+
+  let analysis = themeDescriptions.join(', ');
+  if (feeds.length > 4) {
+    analysis += `. Cette diversité de ${feeds.length} sources distinctes illustre l'ampleur des dynamiques en cours.`;
   }
-  return `Analyse: ${sentences.join('; ')}.`;
+
+  return analysis;
 }
 
 function enforceCharLimit(value: string, maxChars: number): string {

@@ -1,24 +1,45 @@
 import { SummariseInput } from "@/lib/types";
 
+export function detectLanguage(text: string): string {
+  // Simple heuristic: check for common French vs English words
+  const frenchIndicators = /\b(le|la|les|des|une?|ce|cette|ces|dans|avec|pour|sur|son|ses|qui|que|dont|où|au|aux|du|de|et)\b/gi;
+  const englishIndicators = /\b(the|a|an|and|or|of|to|in|on|for|with|this|that|these|those|is|are|was|were|has|have|will|would)\b/gi;
+
+  const frenchMatches = (text.match(frenchIndicators) || []).length;
+  const englishMatches = (text.match(englishIndicators) || []).length;
+
+  if (englishMatches > frenchMatches && englishMatches >= 2) {
+    return "English";
+  }
+  return "French";
+}
+
 export function buildOpenCodePrompt(input: SummariseInput, language: string = "French"): string {
   const includeUrl = String(process.env.INCLUDE_SOURCE_URL_IN_PROMPT || "true").toLowerCase() !== "false";
   const shortBody = (input.text || "").trim().length < 120;
+  const titleLang = detectLanguage(input.title);
+  const needsTranslation = language === "French" && titleLang === "English";
+
   return [
     `You are a seasoned ${language}-speaking journalist, articulate and elegant, with a neutral voice that avoids partisan (especially right-wing) bias.`,
     "You are an editorial assistant preparing concise news notes.",
     `Always produce the final abstract and bullet points in ${language}, even when the source is in another language.`,
+    needsTranslation ? `IMPORTANT: The article title is in English. You MUST translate it to ${language} and include it in your response.` : "",
     "Never respond that you cannot access, browse or fetch the article; all needed information is provided below.",
     "If specific data (figures, dates, names) is missing, infer cautiously or state that it is not specified instead of refusing.",
     "Use placeholders like 'Détails chiffrés non communiqués' when quantitative details are absent.",
     shortBody ? "The article body is extremely brief. Still produce a meaningful abstract and 3 bullets using title and context. Do NOT refuse." : "",
     "",
     "REQUIRED FORMAT (you MUST follow this exact structure):",
+    needsTranslation ? `TITLE: <translated title in ${language}>` : "",
     `ABSTRACT: <one or two sentences in ${language}, maximum 380 characters>`,
     `- <key point 1 in ${language}, maximum 150 characters>`,
     `- <key point 2 in ${language}, maximum 150 characters>`,
     `- <key point 3 in ${language}, maximum 150 characters>`,
     "",
-    "CRITICAL: Output MUST contain exactly one ABSTRACT line then exactly 3 bullet lines each starting with '- '.",
+    needsTranslation
+      ? `CRITICAL: Output MUST start with TITLE line (translated to ${language}), then ABSTRACT line, then exactly 3 bullet lines each starting with '- '.`
+      : "CRITICAL: Output MUST contain exactly one ABSTRACT line then exactly 3 bullet lines each starting with '- '.",
     "Do NOT add extra commentary, headings, disclaimers, apologies, warnings, markdown, numbering or analysis outside this format.",
     "Do NOT explain limitations. Do NOT say you cannot access content.",
     "",
@@ -30,6 +51,7 @@ export function buildOpenCodePrompt(input: SummariseInput, language: string = "F
     "- Enforce the character limits and truncate gracefully when needed.",
     "",
     `Article title: ${input.title}`,
+    needsTranslation ? `(Title language: ${titleLang} - translate to ${language})` : "",
     includeUrl ? `Source URL: ${input.url}` : "",
     "",
     "Article body:",

@@ -27,7 +27,6 @@ Each edition markdown now includes additional frontmatter fields for richer UI (
 - `generatedAt` (ISO timestamp of build)
 - `readingMinutes` (estimated whole minutes for briefing sections)
 - `wordCount` (word count of briefing sections)
-- `targetReadingMinutes` (copied from config at generation time)
 
 ## Quick Start
 
@@ -75,7 +74,10 @@ digest:
   max_articles_per_feed: 8
   max_chars_per_summary: 400
   min_chars_per_summary: 140
-  target_reading_minutes: 45
+  target_words:
+    overview: 500
+    background: 250
+    analysis: 300
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null
@@ -128,7 +130,9 @@ Visit `http://localhost:3000` to view your digests.
 - `digest.max_articles_per_feed` - Maximum articles to include per feed
 - `digest.max_chars_per_summary` - Maximum length of article summaries
 - `digest.min_chars_per_summary` - Minimum length of article summaries
-- `digest.target_reading_minutes` - Target reading time for the entire digest
+- `digest.target_words.overview` - Target word count for overview section
+- `digest.target_words.background` - Target word count for background section
+- `digest.target_words.analysis` - Target word count for analysis section
 
 ### OpenCode Settings
 

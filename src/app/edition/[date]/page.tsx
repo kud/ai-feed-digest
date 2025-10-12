@@ -69,17 +69,14 @@ function EditionView({ edition }: { edition: EditionDocument }) {
 
   const readingMinutes = edition.readingMinutes;
   const wordCount = edition.wordCount;
-  const target = edition.targetReadingMinutes;
-  const pct = readingMinutes && target ? Math.min(100, Math.round((readingMinutes / target) * 100)) : null;
 
   return (
     <article aria-labelledby="edition-title" className="edition-layout">
       <header>
         <div className="entry-meta">
-          <Tag>{edition.timezone}</Tag>
-          <span>{formatEditionDate(edition.date)}</span>
+          <span><Tag>{edition.timezone}</Tag></span>
+          <span>{edition.sources.length} sources</span>
           <span>{totalItems} {t("stories")}</span>
-
 
           <Link href="/archive" className="muted">
             {t("viewArchive")}
@@ -98,7 +95,6 @@ function EditionView({ edition }: { edition: EditionDocument }) {
           <div className="reading-progress__meta" style={{marginTop: '0.85rem'}}>
             <strong>{readingMinutes} min</strong>
             {wordCount && <span>{wordCount.toLocaleString()} mots</span>}
-            {target && <span>objectif {target} min</span>}
           </div>
         )}
       </header>
@@ -108,11 +104,23 @@ function EditionView({ edition }: { edition: EditionDocument }) {
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              a: ({ node, ...props }) => (
-                <a {...props} target="_blank" rel="noopener noreferrer">
-                  {props.children}
-                </a>
-              )
+              a: ({ node, ...props }) => {
+                // Check if link text contains the citation arrow
+                const linkText = typeof props.children === 'string' ? props.children :
+                  Array.isArray(props.children) ? props.children.join('') : '';
+                const isCitation = linkText.includes('↗');
+
+                return (
+                  <a
+                    {...props}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={isCitation ? 'source-citation' : undefined}
+                  >
+                    {props.children}
+                  </a>
+                );
+              }
             }}
           >
             {edition.content}
