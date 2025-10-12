@@ -42,7 +42,6 @@ export interface EditionNarrativeItem {
 
 export interface EditionBriefing {
   overview: string;
-  background: string;
   analysis: string;
   timeline: Array<{
     title: string;
@@ -72,7 +71,6 @@ export interface DigestConfig {
     min_chars_per_summary: number;
     target_words: {
       overview: number;
-      background: number;
       analysis: number;
     };
   };

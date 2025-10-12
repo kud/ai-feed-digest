@@ -8,7 +8,6 @@ digest:
   min_chars_per_summary: 140
   target_words:
     overview: 500
-    background: 250
     analysis: 300
 opencode:
   model: "github-copilot/gpt-4.1"

@@ -102,7 +102,6 @@ const configSchema = z.object({
     min_chars_per_summary: z.number().int().min(80).max(600),
     target_words: z.object({
       overview: z.number().int().min(100).max(2000),
-      background: z.number().int().min(50).max(1000),
       analysis: z.number().int().min(50).max(1000)
     })
   }),
@@ -803,8 +802,6 @@ function composeMarkdown(
     const sections = [
       "# L'essentiel du jour",
       briefing.overview.trim(),
-      briefing.background ? "## Contexte" : "",
-      briefing.background ? briefing.background.trim() : "",
       "## Analyse",
       briefing.analysis.trim(),
       "## À surveiller",

@@ -283,7 +283,6 @@ export async function generateBriefingDocument(
           return {
             ...parsed,
             overview: ensureMarkdownLinks(parsed.overview, items),
-            background: ensureMarkdownLinks(parsed.background, items),
             analysis: ensureMarkdownLinks(parsed.analysis, items)
           };
         }
@@ -391,7 +390,6 @@ function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing |
       : [];
 
     const overview = String(candidate.overview ?? "").trim();
-    const background = String(candidate.background ?? "").trim();
     const analysis = String(candidate.analysis ?? "").trim();
     const readingMinutes = Number.isFinite(candidate.readingMinutes)
       ? Math.max(1, Math.round(Number(candidate.readingMinutes)))
@@ -402,11 +400,10 @@ function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing |
       return null;
     }
 
-    const words = overview.split(/\s+/).length + background.split(/\s+/).length + analysis.split(/\s+/).length;
+    const words = overview.split(/\s+/).length + analysis.split(/\s+/).length;
 
     return {
       overview,
-      background,
       analysis,
       timeline,
       fastFacts,
@@ -448,7 +445,6 @@ function fallbackBriefing(
       note: enforceCharLimit(item.summary.abstract, 160)
     }));
 
-  const background = generateBackgroundParagraph(items, config.timezone);
   const analysis = generateAnalysisParagraph(items);
   const overview = narrative;
 
@@ -466,7 +462,6 @@ function fallbackBriefing(
 
   return {
     overview,
-    background,
     analysis,
     timeline,
     fastFacts: facts,
@@ -501,44 +496,6 @@ function dedupeByUrl(items: EditionNarrativeItem[]): EditionNarrativeItem[] {
     result.push(item);
   }
   return result;
-}
-
-// Legacy simple background generator retained for fallback & comparison
-function generateBackgroundParagraphLegacy(items: EditionNarrativeItem[], timezone: string): string {
-  if (items.length === 0) {
-    return "";
-  }
-  const titles = items.slice(0, 12).map(i => i.title);
-  const textCorpus = items
-    .slice(0, 24)
-    .flatMap(i => [i.summary.abstract, ...i.summary.bullets])
-    .join(' ')
-    .toLowerCase();
-  const stop = new Set(['the','a','an','and','or','of','to','in','on','for','avec','les','des','une','un','le','la','et','de','du','dans','sur','par','que','qui','pour']);
-  const freq: Record<string, number> = {};
-  for (const token of textCorpus.split(/[^a-z0-9\u00e9\u00e8\u00ea\u00e0\u00f9\u00ee\u00ef\u00f4\u00e7]+/i)) {
-    const t = token.trim();
-    if (t.length < 4) continue;
-    if (stop.has(t)) continue;
-    freq[t] = (freq[t] || 0) + 1;
-  }
-  const topKeywords = Object.entries(freq)
-    .sort((a,b) => b[1]-a[1])
-    .slice(0, 6)
-    .map(([k]) => k)
-    .filter(Boolean);
-  const distinct: string[] = [];
-  const seen = new Set<string>();
-  for (const t of titles) {
-    const key = t.toLowerCase().replace(/[^a-z0-9\u00e9\u00e8\u00ea\u00e0\u00f9\u00ee\u00ef\u00f4\u00e7 ]+/gi, '').trim();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    distinct.push(t);
-    if (distinct.length >= 4) break;
-  }
-  const sampleList = distinct.map(t => `\u00ab ${t} \u00bb`).join(', ');
-  const keywordList = topKeywords.slice(0,4).join(', ');
-  return `Panorama de ${items.length} articles. Th\u00e8mes saillants: ${keywordList || 'divers'}. Exemples: ${sampleList}.`;
 }
 
 interface ThemeCandidate { token: string; score: number; items: EditionNarrativeItem[]; }
@@ -612,39 +569,6 @@ function shortenFeedName(feedName: string): string {
   // If no pattern matches, return first 40 chars or full name
   return feedName.length > 40 ? feedName.slice(0, 40).trim() + '…' : feedName;
 }
-
-function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: string): string {
-  if (items.length === 0) return "";
-  if (items.length < 6) return generateBackgroundParagraphLegacy(items, timezone);
-  const themes = extractThemes(items, 4);
-  if (themes.length < 2) return generateBackgroundParagraphLegacy(items, timezone);
-  const sourceCount = new Set(items.map(i => i.feed)).size;
-
-  // Build proper prose with citation tags instead of raw theme labels
-  const themeDescriptions: string[] = [];
-  for (const th of themes.slice(0, 3)) {
-    // Get actual items for this theme to create citation tags
-    const themeItems = th.sources.slice(0, 2).map(sourceName =>
-      items.find(item => item.feed === sourceName)
-    ).filter(Boolean) as EditionNarrativeItem[];
-
-    if (themeItems.length > 0) {
-      const citations = themeItems.map(item =>
-        `[↗ ${shortenFeedName(item.feed)}](${item.url})`
-      ).join(' ');
-      const exampleTitle = th.titles[0] ? ` (ex: « ${th.titles[0]} »)` : '';
-      themeDescriptions.push(`${citations}${exampleTitle}`);
-    }
-  }
-
-  let background = `Cette édition couvre ${items.length} articles provenant de ${sourceCount} sources distinctes. `;
-  if (themeDescriptions.length > 0) {
-    background += `Parmi les axes principaux: ${themeDescriptions.join('; ')}.`;
-  }
-
-  return background;
-}
-
 
 function generateAnalysisParagraphLegacy(items: EditionNarrativeItem[]): string {
   if (items.length === 0) {

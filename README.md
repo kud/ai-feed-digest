@@ -76,7 +76,6 @@ digest:
   min_chars_per_summary: 140
   target_words:
     overview: 500
-    background: 250
     analysis: 300
 opencode:
   model: "github-copilot/gpt-4.1"
@@ -131,7 +130,6 @@ Visit `http://localhost:3000` to view your digests.
 - `digest.max_chars_per_summary` - Maximum length of article summaries
 - `digest.min_chars_per_summary` - Minimum length of article summaries
 - `digest.target_words.overview` - Target word count for overview section
-- `digest.target_words.background` - Target word count for background section
 - `digest.target_words.analysis` - Target word count for analysis section
 
 ### OpenCode Settings
