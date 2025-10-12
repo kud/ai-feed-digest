@@ -71,8 +71,10 @@ export function SiteHeader({ title, subtitle, fontStorageKey, sizeStorageKey, wi
           aria-label={menuOpen ? "Fermer le menu" : "Ouvrir le menu"}
           aria-expanded={menuOpen}
           aria-controls="mobile-menu-panel"
+          aria-haspopup="true"
           onClick={() => setMenuOpen(o => !o)}
         >
+          <span className="sr-only">{menuOpen ? "Fermer le menu" : "Ouvrir le menu"}</span>
           <span className="site-header__mobile-toggle-bar" aria-hidden="true" />
           <span className="site-header__mobile-toggle-bar" aria-hidden="true" />
           <span className="site-header__mobile-toggle-bar" aria-hidden="true" />
@@ -82,6 +84,9 @@ export function SiteHeader({ title, subtitle, fontStorageKey, sizeStorageKey, wi
         id="mobile-menu-panel"
         className={"mobile-menu" + (menuOpen ? " is-open" : "")}
         hidden={!menuOpen}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
       >
         <div className="mobile-menu__inner">
           <div className="mobile-menu__group">
@@ -91,6 +96,7 @@ export function SiteHeader({ title, subtitle, fontStorageKey, sizeStorageKey, wi
             <ThemeToggle storageKey="daily-brief-theme" />
           </div>
         </div>
+        <button type="button" className="mobile-menu__backdrop" aria-label="Fermer" onClick={() => setMenuOpen(false)} />
       </div>
     </header>
   );

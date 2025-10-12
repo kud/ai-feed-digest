@@ -180,7 +180,7 @@ a:focus-visible {
 .markdown p:has(> em:only-child) em:only-child { display: inline-block; padding: 0.55rem 0.9rem 0.6rem; background: linear-gradient(135deg,var(--accent-light),rgba(59,130,246,0.15)); border: 1px solid var(--border); border-radius: var(--radius-lg); font-style: normal; font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-hover); position: relative; overflow: hidden; }
 .markdown p:has(> em:only-child) em:only-child::before { content: "✦"; margin-right: 0.5rem; color: var(--accent); }
 /* Improved bullets for classic markdown lists */
-.markdown ul li { position: relative; list-style: none; padding-left: 1.5rem; margin-bottom: 0.75rem; line-height: 1.65; }
+.markdown ul li { position: relative; list-style: none; padding-left: 1.4rem; margin-bottom: 0.65rem; line-height: 1.6; } /* increased gap between arrow and text */
 .markdown ul li::before { content: "→"; position: absolute; left: 0; top: 0.1rem; color: var(--accent); font-weight: 700; font-size: 1rem; transition: transform 0.2s ease; }
 .markdown ul li:hover::before { transform: translateX(3px); }
 
@@ -239,6 +239,10 @@ a:focus-visible {
   align-items: center;
   gap: 0.75rem;
 }
+
+/* Backdrop button inside panel (covers entire screen behind inner content) */
+.mobile-menu__backdrop { position: fixed; inset: 0; background: rgba(15,23,42,0.4); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); border: 0; padding: 0; margin: 0; cursor: pointer; }
+:root[data-theme="dark"] .mobile-menu__backdrop { background: rgba(0,0,0,0.55); }
 
 .site-title {
   font-size: clamp(1.45rem, 2.6vw, 1.9rem);
@@ -892,33 +896,6 @@ body.mobile-menu-open { overflow: hidden; }
   box-shadow: var(--shadow-sm);
 }
 
-.reading-progress {
-  margin-top: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  max-width: 420px;
-}
-
-.reading-progress__bar {
-  position: relative;
-  height: 8px;
-  background: var(--surface-muted);
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.reading-progress__fill {
-  position: absolute;
-  inset: 0 0 0 0;
-  width: 0%;
-  background: linear-gradient(90deg,var(--accent) 0%, var(--accent-hover) 100%);
-  border-radius: inherit;
-  transition: width 0.85s cubic-bezier(0.4,0,0.2,1);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset;
-}
-
 .reading-progress__meta {
   display: flex;
   align-items: center;
@@ -939,12 +916,4 @@ body.mobile-menu-open { overflow: hidden; }
   background: linear-gradient(135deg,var(--accent-light),rgba(96,165,250,0.15));
   border-color: var(--border);
   color: var(--accent);
-}
-
-:root[data-theme="dark"] .reading-progress__bar {
-  background: linear-gradient(135deg,#1e293b,#334155);
-}
-
-:root[data-theme="dark"] .reading-progress__fill {
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.35) inset;
 }

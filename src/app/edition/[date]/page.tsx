@@ -79,10 +79,8 @@ function EditionView({ edition }: { edition: EditionDocument }) {
           <Tag>{edition.timezone}</Tag>
           <span>{formatEditionDate(edition.date)}</span>
           <span>{totalItems} {t("stories")}</span>
-          {readingMinutes && (
-            <span className="reading-pill" title={`${wordCount?.toLocaleString()} mots`}>⏱ {readingMinutes} min{pct !== null && ` • ${pct}%`}</span>
-          )}
-          {generatedAtText && <span>{generatedAtText}</span>}
+
+
           <Link href="/archive" className="muted">
             {t("viewArchive")}
           </Link>
@@ -97,18 +95,10 @@ function EditionView({ edition }: { edition: EditionDocument }) {
           )}
         </h1>
         {readingMinutes && (
-          <div className="reading-progress" aria-label="Temps de lecture estimé">
-            <div className="reading-progress__bar">
-              <div
-                className="reading-progress__fill"
-                style={{ width: pct !== null ? `${pct}%` : '100%' }}
-              />
-            </div>
-            <div className="reading-progress__meta">
-              <strong>{readingMinutes} min</strong>
-              {wordCount && <span>{wordCount.toLocaleString()} mots</span>}
-              {target && <span>objectif {target} min</span>}
-            </div>
+          <div className="reading-progress__meta" style={{marginTop: '0.85rem'}}>
+            <strong>{readingMinutes} min</strong>
+            {wordCount && <span>{wordCount.toLocaleString()} mots</span>}
+            {target && <span>objectif {target} min</span>}
           </div>
         )}
       </header>
