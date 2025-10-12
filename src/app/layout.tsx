@@ -88,13 +88,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             {children}
           </main>
           <footer className="site-footer" role="contentinfo">
-            <div className="site-footer__inner">
-              <div className="site-footer__headline">
-                <span className="site-footer__brand">{t("siteTitle")}</span>
-                <span className="site-footer__motto">{t("siteSubtitle")}</span>
-              </div>
-              <p className="site-footer__copy">{t("footerText")}</p>
-              <p className="site-footer__nav"><a href="/archive">{t("viewArchive")}</a></p>
+            <div className="site-footer__minimal">
+              <p className="site-footer__line">
+                <strong className="site-footer__brand-min" aria-label={t("siteTitle")}>{t("siteTitle")}</strong>
+                <span aria-hidden="true" className="site-footer__divider">·</span>
+                <span className="site-footer__tagline-min">{t("siteSubtitle")}</span>
+                <span className="site-footer__meta-sep" aria-hidden="true">—</span>
+                <span className="site-footer__meta-text">{t("footerText")}</span>
+                <span className="site-footer__meta-link"><a href="/archive">{t("viewArchive")}</a></span>
+              </p>
             </div>
           </footer>
         </div>

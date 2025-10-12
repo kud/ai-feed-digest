@@ -482,7 +482,8 @@ function dedupeByUrl(items: EditionNarrativeItem[]): EditionNarrativeItem[] {
   return result;
 }
 
-function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: string): string {
+// Legacy simple background generator retained for fallback & comparison
+function generateBackgroundParagraphLegacy(items: EditionNarrativeItem[], timezone: string): string {
   if (items.length === 0) {
     return "";
   }
@@ -492,10 +493,9 @@ function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: st
     .flatMap(i => [i.summary.abstract, ...i.summary.bullets])
     .join(' ')
     .toLowerCase();
-  // Simple keyword extraction: frequency of tokens excluding short/common stopwords
   const stop = new Set(['the','a','an','and','or','of','to','in','on','for','avec','les','des','une','un','le','la','et','de','du','dans','sur','par','que','qui','pour']);
   const freq: Record<string, number> = {};
-  for (const token of textCorpus.split(/[^a-z0-9éèêàùîïôç]+/i)) {
+  for (const token of textCorpus.split(/[^a-z0-9\u00e9\u00e8\u00ea\u00e0\u00f9\u00ee\u00ef\u00f4\u00e7]+/i)) {
     const t = token.trim();
     if (t.length < 4) continue;
     if (stop.has(t)) continue;
@@ -506,22 +506,95 @@ function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: st
     .slice(0, 6)
     .map(([k]) => k)
     .filter(Boolean);
-  // Representative distinct titles (avoid near duplicates)
   const distinct: string[] = [];
   const seen = new Set<string>();
   for (const t of titles) {
-    const key = t.toLowerCase().replace(/[^a-z0-9éèêàùîïôç ]+/gi, '').trim();
+    const key = t.toLowerCase().replace(/[^a-z0-9\u00e9\u00e8\u00ea\u00e0\u00f9\u00ee\u00ef\u00f4\u00e7 ]+/gi, '').trim();
     if (seen.has(key)) continue;
     seen.add(key);
     distinct.push(t);
     if (distinct.length >= 4) break;
   }
-  const sampleList = distinct.map(t => `« ${t} »`).join(', ');
+  const sampleList = distinct.map(t => `\u00ab ${t} \u00bb`).join(', ');
   const keywordList = topKeywords.slice(0,4).join(', ');
-  return `Panorama de ${items.length} articles. Thèmes saillants: ${keywordList || 'divers'}. Exemples: ${sampleList}${distinct.length < items.length ? ', …' : ''}.`;
+  return `Panorama de ${items.length} articles. Th\u00e8mes saillants: ${keywordList || 'divers'}. Exemples: ${sampleList}${distinct.length < items.length ? ', \u2026' : ''}.`;
 }
 
-function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
+interface ThemeCandidate { token: string; score: number; items: EditionNarrativeItem[]; }
+interface Theme { label: string; sources: string[]; titles: string[]; }
+
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/\p{Diacritic}+/gu, '');
+}
+
+function tokenize(text: string): string[] {
+  return stripAccents(text.toLowerCase())
+    .split(/[^a-z0-9\u00e9\u00e8\u00ea\u00e0\u00f9\u00ee\u00ef\u00f4\u00e7]+/i)
+    .map(t => t.trim())
+    .filter(t => t.length >= 4);
+}
+
+const STOPWORDS = new Set([
+  'the','this','that','with','from','have','been','will','would','could','there','their','about','into','after','before','while','over','under','also','such','more','less','than','between','where','whose','every','each','pour','dans','avec','cela','cette','ces','aux','des','les','une','nous','vous','elle','elles','mais','plus','moins','ainsi','dont','alors','comme','avoir','sont','etre','être','fait','faites','etre','elles','ils','elles','quelques','afin','chez','dont','pour','par','que','qui','quoi','quel','quelle','dont','leur','leurs','sur','vers','dans','tout','tous','toutes','ainsi','sans','selon']
+);
+
+function extractThemes(items: EditionNarrativeItem[], maxThemes = 4): Theme[] {
+  const docs = items.map(it => {
+    const text = [it.summary.abstract, ...it.summary.bullets].join(' ');
+    const tokens = tokenize(text).filter(t => !STOPWORDS.has(t));
+    return { item: it, tokens: new Set(tokens) };
+  });
+  const df: Record<string, number> = {};
+  for (const d of docs) {
+    for (const tok of d.tokens) df[tok] = (df[tok] || 0) + 1;
+  }
+  const N = docs.length;
+  const candidates: ThemeCandidate[] = Object.keys(df).map(tok => {
+    const idf = Math.log(1 + N / (1 + df[tok]));
+    const relatedItems = docs.filter(d => d.tokens.has(tok)).map(d => d.item);
+    const diversity = new Set(relatedItems.map(r => r.feed)).size;
+    const score = idf * df[tok] * Math.log(1 + diversity);
+    return { token: tok, score, items: relatedItems };
+  });
+  candidates.sort((a,b) => b.score - a.score);
+  const selected: Theme[] = [];
+  const usedTokens = new Set<string>();
+  for (const c of candidates) {
+    if (selected.length >= maxThemes) break;
+    let similar = false;
+    for (const u of usedTokens) {
+      if (c.token.startsWith(u.slice(0,5)) || u.startsWith(c.token.slice(0,5))) { similar = true; break; }
+    }
+    if (similar) continue;
+    usedTokens.add(c.token);
+    const sources = Array.from(new Set(c.items.map(i => i.feed)));
+    const titles = c.items.slice(0,2).map(i => i.title);
+    selected.push({ label: c.token, sources, titles });
+  }
+  return selected;
+}
+
+function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: string): string {
+  if (items.length === 0) return "";
+  if (items.length < 6) return generateBackgroundParagraphLegacy(items, timezone);
+  const themes = extractThemes(items, 4);
+  if (themes.length < 2) return generateBackgroundParagraphLegacy(items, timezone);
+  const sourceCount = new Set(items.map(i => i.feed)).size;
+  const themePart = themes.map(t => `${t.label} (${t.sources.slice(0,2).join(', ')}${t.sources.length>2?',…':''})`).join('; ');
+  const exampleTitles: string[] = [];
+  for (const th of themes) {
+    for (const title of th.titles) {
+      if (exampleTitles.length >= 4) break;
+      if (!exampleTitles.includes(title)) exampleTitles.push(title);
+    }
+    if (exampleTitles.length >= 4) break;
+  }
+  const examples = exampleTitles.map(t => `\u00ab ${t} \u00bb`).join(', ');
+  return `Contexte: ${items.length} articles provenant de ${sourceCount} sources. Axes structurants – ${themePart}. Exemples: ${examples}${exampleTitles.length < items.length ? ', …' : ''}.`;
+}
+
+
+function generateAnalysisParagraphLegacy(items: EditionNarrativeItem[]): string {
   if (items.length === 0) {
     return "Aucune analyse approfondie n’est disponible pour cette édition.";
   }
@@ -532,6 +605,25 @@ function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
     .join(" ");
   const leadLink = items[0] ? ` [Lire l’article principal](${items[0].url})` : "";
   return `La lecture croisée de ${feeds.length} sources (${feeds.slice(0, 5).join(", ")}${feeds.length > 5 ? ", …" : ""}) fait ressortir trois signaux majeurs : ${highlights}.${leadLink}`;
+}
+
+function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
+  if (items.length === 0) return "Aucune analyse approfondie n’est disponible pour cette édition.";
+  if (items.length < 6) return generateAnalysisParagraphLegacy(items);
+  const themes = extractThemes(items, 5);
+  if (themes.length < 2) return generateAnalysisParagraphLegacy(items);
+  const feeds = Array.from(new Set(items.map(i => i.feed)));
+  // Build sentences highlighting implications / tensions per theme
+  const sentences: string[] = [];
+  for (const th of themes.slice(0,3)) {
+    const srcs = th.sources.slice(0,3).join(', ');
+    const titleRefs = th.titles.map(t => `« ${t} »`).join(' / ');
+    sentences.push(`${th.label}: signaux convergents via ${srcs} (${titleRefs})`);
+  }
+  if (feeds.length > 4 && sentences.length >= 2) {
+    sentences.push(`Diversité de sources: ${feeds.length} flux distincts alimentent ces dynamiques.`);
+  }
+  return `Analyse: ${sentences.join('; ')}.`;
 }
 
 function enforceCharLimit(value: string, maxChars: number): string {
