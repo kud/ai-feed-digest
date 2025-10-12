@@ -76,6 +76,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang={langCode} data-theme="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: preferencesInitScript }} />
+        <link rel="icon" href="/icon.svg" sizes="any" type="image/svg+xml" />
       </head>
       <body className="bg-surface text-foreground">
         <a href="#main" className="skip-link">
