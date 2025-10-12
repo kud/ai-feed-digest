@@ -10,4 +10,7 @@ digest:
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null
-  timeout_ms: 45000
+timeout_ms: 45000
+
+thematic_order: false
+

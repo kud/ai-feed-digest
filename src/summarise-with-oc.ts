@@ -186,9 +186,29 @@ function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine
     }
   }
 
-  // Enforce at least three or throw
+  // Guarantee three bullets even if model output is sparse
   if (bullets.length < 3) {
-    throw new Error("OpenCode response did not yield three bullet points");
+    // Try splitting abstract by commas / dashes for extra clauses
+    if (bullets.length < 3) {
+      const clauseCandidates = abstract
+        .split(/[;,:–—\-]\s+/)
+        .map(s => s.trim())
+        .filter(s => s.length > 25 && !bullets.includes(s));
+      for (const c of clauseCandidates) {
+        bullets.push(c);
+        if (bullets.length >= 3) break;
+      }
+    }
+    // Pad with generic informative lines if still short
+    while (bullets.length < 3) {
+      if (bullets.length === 0) {
+        bullets.push("Résumé trop concis fourni par le modèle.");
+      } else if (bullets.length === 1) {
+        bullets.push("Informations supplémentaires non extraites automatiquement.");
+      } else {
+        bullets.push("Consultez l’article original pour les autres détails.");
+      }
+    }
   }
 
   // Normalise bullet length (hard cap)

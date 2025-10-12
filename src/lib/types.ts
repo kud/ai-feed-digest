@@ -78,8 +78,10 @@ export interface DigestConfig {
   feeds: Array<{
     title: string;
     url: string;
+    tags?: string[];
   }>;
-}
+  thematic_order?: boolean;
+ }
 
 export interface SummariseInput {
   title: string;

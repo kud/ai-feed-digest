@@ -82,9 +82,13 @@ opencode:
 feeds:
   - title: "BBC World"
     url: "http://feeds.bbci.co.uk/news/world/rss.xml"
+    tags: [news]
   - title: "Hacker News"
     url: "https://hnrss.org/frontpage"
+    tags: [tech, coding]
 ```
+
+Optional: add `tags` arrays (free-form lowercase strings) to influence narrative ordering when thematic ordering is enabled.
 
 ### Generate Your First Edition
 

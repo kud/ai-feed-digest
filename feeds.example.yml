@@ -1,5 +1,7 @@
 feeds:
   - title: "BBC World"
     url: "http://feeds.bbci.co.uk/news/world/rss.xml"
+    tags: [news]
   - title: "Hacker News"
     url: "https://hnrss.org/frontpage"
+    tags: [tech, coding]

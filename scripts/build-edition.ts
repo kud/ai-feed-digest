@@ -105,7 +105,8 @@ const configSchema = z.object({
     model: z.string(),
     agent: z.string().nullable(),
     timeout_ms: z.number().int().min(1).max(120_000)
-  })
+  }),
+  thematic_order: z.boolean().optional().default(false)
 });
 
 const feedsSchema = z.object({
@@ -113,7 +114,8 @@ const feedsSchema = z.object({
     .array(
       z.object({
         title: z.string(),
-        url: z.string().url()
+        url: z.string().url(),
+        tags: z.array(z.string()).optional()
       })
     )
     .min(1)
@@ -251,6 +253,55 @@ async function main() {
     spinner = ora(`Generating AI summaries (0/${pendingStories.length})`).start();
     await summariseStories(pendingStories, config, seen, narrativeStories, spinner);
     spinner.succeed(`Generated ${pendingStories.length} AI summaries`);
+
+    // Optional thematic reordering of narrative stories
+    if (config.thematic_order) {
+      const tagPriorityMap: Record<string, number> = {
+        news: 0,
+        hard: 0,
+        politics: 1,
+        economy: 2,
+        business: 3,
+        tech: 10,
+        coding: 11,
+        developer: 11,
+        ai: 9,
+        science: 8,
+        design: 15,
+        ux: 16,
+        culture: 22,
+        discover: 23,
+        fashion: 24,
+        lifestyle: 25,
+        games: 30,
+        gaming: 30,
+        deals: 34
+      };
+      const feedTags = new Map<string, string[]>();
+      for (const feed of config.feeds) {
+        if (feed.tags && feed.tags.length) {
+          feedTags.set(feed.title, feed.tags.map(t => t.toLowerCase()));
+        }
+      }
+      const originalOrder = new Map(narrativeStories.map((s, i) => [s.url, i] as const));
+      narrativeStories.sort((a, b) => {
+        const aTags = feedTags.get(a.feed) || [];
+        const bTags = feedTags.get(b.feed) || [];
+        const aScore = aTags.length ? Math.min(...aTags.map(t => tagPriorityMap[t] ?? 50)) : 50;
+        const bScore = bTags.length ? Math.min(...bTags.map(t => tagPriorityMap[t] ?? 50)) : 50;
+        if (aScore !== bScore) return aScore - bScore;
+        return (originalOrder.get(a.url)! - originalOrder.get(b.url)!);
+      });
+      if (process.env.NODE_ENV !== 'production') {
+        const buckets: Record<string, number> = {};
+        for (const story of narrativeStories) {
+          const tags = feedTags.get(story.feed) || ['(none)'];
+            const best = tags.slice().sort((x, y) => (tagPriorityMap[x] ?? 50) - (tagPriorityMap[y] ?? 50))[0];
+          buckets[best] = (buckets[best] || 0) + 1;
+        }
+        console.log(`${COLORS.detail}${GLYPHS.info} thematic-order buckets ${Object.entries(buckets).map(([k,v])=>`${k}=${v}`).join(' ')}${COLORS.reset}`);
+      }
+    }
 
     const sourcesWithContent = sources.filter((source) => source.items.length > 0);
     if (sourcesWithContent.length === 0) {
