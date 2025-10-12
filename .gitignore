@@ -38,3 +38,6 @@ Thumbs.db
 /tmp/
 *.tmp
 *.bak
+
+# Vercel deployment folder
+.vercel/
