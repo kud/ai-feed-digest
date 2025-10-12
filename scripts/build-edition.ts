@@ -789,8 +789,6 @@ function composeMarkdown(
     const sections = [
       "# L’essentiel du jour",
       briefing.overview.trim(),
-    "## Contexte",
-    briefing.background.trim(),
     "## Analyse",
     briefing.analysis.trim(),
     "## À surveiller",

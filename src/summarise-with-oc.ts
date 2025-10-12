@@ -427,11 +427,11 @@ function fallbackBriefing(
       note: enforceCharLimit(item.summary.abstract, 160)
     }));
 
-  const background = generateBackgroundParagraph(items, config.timezone);
+  const background = ""; // Background section suppressed
   const analysis = generateAnalysisParagraph(items);
   const overview = narrative;
 
-  const coreWordCount = [overview, background, analysis]
+  const coreWordCount = [overview, analysis]
     .join(" \n")
     .split(/\s+/)
     .filter(Boolean).length;
