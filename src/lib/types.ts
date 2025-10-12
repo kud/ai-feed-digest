@@ -23,7 +23,10 @@ export interface EditionFrontmatter {
   timezone: string;
   sources: EditionSource[];
   generatedAt?: string;
-}
+  readingMinutes?: number;
+  wordCount?: number;
+  targetReadingMinutes?: number;
+ }
 
 export interface EditionDocument extends EditionFrontmatter {
   slug: string;

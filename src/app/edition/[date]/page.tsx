@@ -67,6 +67,11 @@ function EditionView({ edition }: { edition: EditionDocument }) {
   // Always show full localized date (ignore any abbreviated part in title)
   datePart = formatEditionDate(edition.date);
 
+  const readingMinutes = edition.readingMinutes;
+  const wordCount = edition.wordCount;
+  const target = edition.targetReadingMinutes;
+  const pct = readingMinutes && target ? Math.min(100, Math.round((readingMinutes / target) * 100)) : null;
+
   return (
     <article aria-labelledby="edition-title" className="edition-layout">
       <header>
@@ -74,6 +79,9 @@ function EditionView({ edition }: { edition: EditionDocument }) {
           <Tag>{edition.timezone}</Tag>
           <span>{formatEditionDate(edition.date)}</span>
           <span>{totalItems} {t("stories")}</span>
+          {readingMinutes && (
+            <span className="reading-pill" title={`${wordCount?.toLocaleString()} mots`}>⏱ {readingMinutes} min{pct !== null && ` • ${pct}%`}</span>
+          )}
           {generatedAtText && <span>{generatedAtText}</span>}
           <Link href="/archive" className="muted">
             {t("viewArchive")}
@@ -88,6 +96,21 @@ function EditionView({ edition }: { edition: EditionDocument }) {
             </>
           )}
         </h1>
+        {readingMinutes && (
+          <div className="reading-progress" aria-label="Temps de lecture estimé">
+            <div className="reading-progress__bar">
+              <div
+                className="reading-progress__fill"
+                style={{ width: pct !== null ? `${pct}%` : '100%' }}
+              />
+            </div>
+            <div className="reading-progress__meta">
+              <strong>{readingMinutes} min</strong>
+              {wordCount && <span>{wordCount.toLocaleString()} mots</span>}
+              {target && <span>objectif {target} min</span>}
+            </div>
+          </div>
+        )}
       </header>
 
       {edition.content && (

@@ -311,17 +311,20 @@ async function main() {
 
     const totalItems = sourcesWithContent.reduce((acc, source) => acc + source.items.length, 0);
 
+    spinner = ora(`Generating briefing document (overview, analysis, timeline)...`).start();
+    const briefing = await generateBriefingDocument(narrativeStories, config);
+    spinner.succeed(`Briefing document generated (~${briefing.readingMinutes} min read, ${briefing.wordCount} words)`);
+
     const frontmatter = {
       date: editionDate,
       title: buildEditionTitle(editionDate),
       timezone: config.timezone,
       sources: sourcesWithContent,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      readingMinutes: briefing.readingMinutes,
+      wordCount: briefing.wordCount,
+      targetReadingMinutes: config.digest.target_reading_minutes
     };
-
-    spinner = ora(`Generating briefing document (overview, analysis, timeline)...`).start();
-    const briefing = await generateBriefingDocument(narrativeStories, config);
-    spinner.succeed(`Briefing document generated (~${briefing.readingMinutes} min read, ${briefing.wordCount} words)`);
     
     spinner = ora(`Writing edition markdown file...`).start();
     const generationTimeSeconds = Math.round((Date.now() - startTime) / 1000);
@@ -382,6 +385,9 @@ async function loadConfig(): Promise<DigestConfig> {
     const feedsParsed = YAML.parse(feedsRaw);
     const feedsData = feedsSchema.parse(feedsParsed);
 
+    if (process.env.OPENCODE_MODEL && typeof process.env.OPENCODE_MODEL === 'string' && process.env.OPENCODE_MODEL.trim()) {
+      (config as any).opencode.model = process.env.OPENCODE_MODEL.trim();
+    }
     return {
       ...config,
       feeds: feedsData.feeds
@@ -767,6 +773,9 @@ function composeMarkdown(
     timezone: string;
     sources: EditionSource[];
     generatedAt: string;
+    readingMinutes?: number;
+    wordCount?: number;
+    targetReadingMinutes?: number;
   },
   briefing: EditionBriefing,
   stories: EditionNarrativeItem[]
@@ -777,10 +786,9 @@ function composeMarkdown(
   const timelineMarkdown = renderTimeline(briefing.timeline, frontmatter.timezone);
   const factsMarkdown = renderList(briefing.fastFacts);
   const readingMarkdown = renderFurtherReading(briefing.furtherReading);
-  const sections = [
-    "# L’essentiel du jour",
-    `**Temps de lecture estimé :** ${briefing.readingMinutes} minutes (${briefing.wordCount.toLocaleString()} mots environ)`,
-    briefing.overview.trim(),
+    const sections = [
+      "# L’essentiel du jour",
+      briefing.overview.trim(),
     "## Contexte",
     briefing.background.trim(),
     "## Analyse",

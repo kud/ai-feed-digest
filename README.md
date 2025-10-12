@@ -23,6 +23,12 @@ An AI-powered RSS feed aggregator that generates elegant daily briefings in your
 - **Configurable Digest Schedule** - Set your preferred time and reading duration
 - **Markdown-Based** - All editions stored as markdown files for easy archiving and portability
 
+Each edition markdown now includes additional frontmatter fields for richer UI (replaces the old inline reading time line):
+- `generatedAt` (ISO timestamp of build)
+- `readingMinutes` (estimated whole minutes for briefing sections)
+- `wordCount` (word count of briefing sections)
+- `targetReadingMinutes` (copied from config at generation time)
+
 ## Quick Start
 
 ### Prerequisites
@@ -179,6 +185,7 @@ The following optional environment variables allow tuning performance and output
 - `SUMMARY_RETRIES` (default 3, max 5): Exponential backoff retry attempts for failed or unparseable AI responses.
 - `READING_WPM` (default 210): Words-per-minute used to estimate reading time; validated range 80–500.
 - `INCLUDE_SOURCE_URL_IN_PROMPT` (default true): Set to `false` to omit the original URL from the model prompt (for minimal disclosure environments).
+- `OPENCODE_MODEL`: One-off override of `opencode.model` for a single run. Example: `OPENCODE_MODEL=openai/gpt-4o-mini npm run generate:edition`. Does not change `config.yml`.
 
 Retry strategy: failed / unparseable summary responses are retried with exponential backoff (500ms, 1s, 2s, 4s…). After exhausting attempts a deterministic fallback summary is emitted so the edition always completes.
 

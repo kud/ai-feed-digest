@@ -39,7 +39,11 @@ const editionSchema = z.object({
           .min(1)
       })
     )
-    .min(1)
+    .min(1),
+  generatedAt: z.string().optional(),
+  readingMinutes: z.number().optional(),
+  wordCount: z.number().optional(),
+  targetReadingMinutes: z.number().optional()
 });
 
 export async function listEditionSlugs(): Promise<string[]> {
