@@ -12,7 +12,6 @@ config.yml
 feeds.yml
 
 # Generated content
-content/editions/*.md
 content/cache/
 !content/editions/.gitkeep
 .claude/
