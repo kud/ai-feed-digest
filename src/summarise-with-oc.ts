@@ -595,23 +595,54 @@ function extractThemes(items: EditionNarrativeItem[], maxThemes = 4): Theme[] {
   return selected;
 }
 
+function shortenFeedName(feedName: string): string {
+  // Extract main feed name before common separators
+  const patterns = [
+    /^([^:—–\-]+)[\s]*[:—–\-]/, // "Pixels : Toute l'actualité..." -> "Pixels"
+    /^(.*?)\s*\|\s*/, // "Site | Description" -> "Site"
+  ];
+
+  for (const pattern of patterns) {
+    const match = feedName.match(pattern);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+
+  // If no pattern matches, return first 40 chars or full name
+  return feedName.length > 40 ? feedName.slice(0, 40).trim() + '…' : feedName;
+}
+
 function generateBackgroundParagraph(items: EditionNarrativeItem[], timezone: string): string {
   if (items.length === 0) return "";
   if (items.length < 6) return generateBackgroundParagraphLegacy(items, timezone);
   const themes = extractThemes(items, 4);
   if (themes.length < 2) return generateBackgroundParagraphLegacy(items, timezone);
   const sourceCount = new Set(items.map(i => i.feed)).size;
-  const themePart = themes.map(t => `${t.label} (${t.sources.slice(0,2).join(', ')}${t.sources.length>2?',…':''})`).join('; ');
-  const exampleTitles: string[] = [];
-  for (const th of themes) {
-    for (const title of th.titles) {
-      if (exampleTitles.length >= 4) break;
-      if (!exampleTitles.includes(title)) exampleTitles.push(title);
+
+  // Build proper prose with citation tags instead of raw theme labels
+  const themeDescriptions: string[] = [];
+  for (const th of themes.slice(0, 3)) {
+    // Get actual items for this theme to create citation tags
+    const themeItems = th.sources.slice(0, 2).map(sourceName =>
+      items.find(item => item.feed === sourceName)
+    ).filter(Boolean) as EditionNarrativeItem[];
+
+    if (themeItems.length > 0) {
+      const citations = themeItems.map(item =>
+        `[↗ ${shortenFeedName(item.feed)}](${item.url})`
+      ).join(' ');
+      const exampleTitle = th.titles[0] ? ` (ex: « ${th.titles[0]} »)` : '';
+      themeDescriptions.push(`${citations}${exampleTitle}`);
     }
-    if (exampleTitles.length >= 4) break;
   }
-  const examples = exampleTitles.map(t => `\u00ab ${t} \u00bb`).join(', ');
-  return `Contexte: ${items.length} articles provenant de ${sourceCount} sources. Axes structurants – ${themePart}. Exemples: ${examples}${exampleTitles.length < items.length ? ', …' : ''}.`;
+
+  let background = `Cette édition couvre ${items.length} articles provenant de ${sourceCount} sources distinctes. `;
+  if (themeDescriptions.length > 0) {
+    background += `Parmi les axes principaux: ${themeDescriptions.join('; ')}.`;
+  }
+
+  return background;
 }
 
 
@@ -635,11 +666,20 @@ function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
   if (themes.length < 2) return generateAnalysisParagraphLegacy(items);
   const feeds = Array.from(new Set(items.map(i => i.feed)));
 
-  // Build proper prose instead of debug tokens
+  // Build proper prose with citation tags
   const themeDescriptions: string[] = [];
-  for (const th of themes.slice(0,3)) {
-    const srcs = th.sources.slice(0,2).join(' et ');
-    themeDescriptions.push(`Les développements autour de ${th.label} [↗ ${srcs}](${items.find(i => i.feed === th.sources[0])?.url || ''})`);
+  for (const th of themes.slice(0, 3)) {
+    // Get actual items for this theme to create proper citation tags
+    const themeItems = th.sources.slice(0, 2).map(sourceName =>
+      items.find(item => item.feed === sourceName)
+    ).filter(Boolean) as EditionNarrativeItem[];
+
+    if (themeItems.length > 0) {
+      const citations = themeItems.map(item =>
+        `[↗ ${shortenFeedName(item.feed)}](${item.url})`
+      ).join(' ');
+      themeDescriptions.push(`Les développements autour de ${th.label} ${citations}`);
+    }
   }
 
   let analysis = themeDescriptions.join(', ');
