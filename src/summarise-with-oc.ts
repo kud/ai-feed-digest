@@ -212,9 +212,9 @@ function parseOpenCodeOutput(raw: string): Omit<SummariseResult, "via" | "engine
     }
   }
 
-  // Normalise bullet length (hard cap)
-  const normalised = bullets.slice(0, 3).map(b => b.length > 240 ? b.slice(0, 239).trim() + '…' : b);
-
+  // Preserve bullet content without hard truncation; model prompt now discourages overlong bullets.
+  const normalised = bullets.slice(0, 3);
+ 
   return { abstract, bullets: normalised };
 }
 
@@ -517,7 +517,7 @@ function generateBackgroundParagraphLegacy(items: EditionNarrativeItem[], timezo
   }
   const sampleList = distinct.map(t => `\u00ab ${t} \u00bb`).join(', ');
   const keywordList = topKeywords.slice(0,4).join(', ');
-  return `Panorama de ${items.length} articles. Th\u00e8mes saillants: ${keywordList || 'divers'}. Exemples: ${sampleList}${distinct.length < items.length ? ', \u2026' : ''}.`;
+  return `Panorama de ${items.length} articles. Th\u00e8mes saillants: ${keywordList || 'divers'}. Exemples: ${sampleList}.`;
 }
 
 interface ThemeCandidate { token: string; score: number; items: EditionNarrativeItem[]; }
@@ -627,10 +627,18 @@ function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
 }
 
 function enforceCharLimit(value: string, maxChars: number): string {
-  if (value.length <= maxChars) {
-    return value;
+  if (value.length <= maxChars) return value;
+  const soft = value.slice(0, maxChars);
+  // Try to end at the last complete sentence within soft part
+  const sentenceBoundary = soft.match(/[.!?](?=\s|$)(?!.*[.!?](?=\s|$))/);
+  if (sentenceBoundary) {
+    const idx = soft.lastIndexOf(sentenceBoundary[0]);
+    if (idx >= Math.floor(maxChars * 0.6)) {
+      return soft.slice(0, idx + 1).trim();
+    }
   }
-  return `${value.slice(0, maxChars - 1).trim()}…`;
+  // No acceptable boundary: return full original (avoid mid-sentence truncation)
+  return value;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

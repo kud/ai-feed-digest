@@ -880,21 +880,7 @@ body.mobile-menu-open { overflow: hidden; }
 #main.site-main[data-width="wide"] { max-width: 1380px; }
 
 /* Reading time pill + progress */
-.reading-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.7rem 0.4rem;
-  background: linear-gradient(135deg,var(--accent-light),rgba(59,130,246,0.15));
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--accent-hover);
-  box-shadow: var(--shadow-sm);
-}
+/* (removed .reading-pill styles: component deprecated) */
 
 .reading-progress__meta {
   display: flex;
