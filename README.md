@@ -74,13 +74,10 @@ digest:
   max_articles_per_feed: 8
   max_chars_per_summary: 400
   min_chars_per_summary: 140
-  target_words:
-    overview: 500
-    analysis: 300
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null
-  timeout_ms: 45000
+  timeout_ms: 90000
 ```
 
 4. Add your RSS feeds in `feeds.yml`:
@@ -129,14 +126,13 @@ Visit `http://localhost:3000` to view your digests.
 - `digest.max_articles_per_feed` - Maximum articles to include per feed
 - `digest.max_chars_per_summary` - Maximum length of article summaries
 - `digest.min_chars_per_summary` - Minimum length of article summaries
-- `digest.target_words.overview` - Target word count for overview section
-- `digest.target_words.analysis` - Target word count for analysis section
 
 ### OpenCode Settings
 
 - `opencode.model` - AI model to use (e.g., "github-copilot/gpt-4.1")
 - `opencode.agent` - Optional agent configuration
 - `opencode.timeout_ms` - Request timeout in milliseconds
+  *If you see timeout warnings, increase this to 90000ms or higher.*
 
 ## Scripts
 
