@@ -10,12 +10,14 @@ import { z } from "zod";
 import ora, { type Ora } from "ora";
 import { generateBriefingDocument, generateEditionNarrative, summariseWithOC, warmupOpenCodeClient, getSummaryMetrics } from "../src/summarise-with-oc";
 import { detectLanguage } from "../src/opencode-prompt";
+import { loadEditionByDate } from "@/lib/load-edition";
 import {
   DigestConfig,
   EditionBriefing,
   EditionItem,
   EditionNarrativeItem,
   EditionSource,
+  EditionDocument,
   SummariseInput
 } from "../src/lib/types";
 import { EDITIONS_DIR, CONFIG_PATH, FEEDS_CONFIG_PATH, SEEN_CACHE_PATH, SUMMARY_METRICS_PATH } from "../src/lib/constants";
@@ -50,6 +52,45 @@ const GLYPHS = {
   window: "⌚"
 } as const;
 
+const CURATED_HOSTS = [
+  "lemonde.fr",
+  "liberation.fr",
+  "reuters.com",
+  "apnews.com",
+  "associatedpress.com",
+  "futura-sciences.com",
+  "france24.com",
+  "bbc.co.uk",
+  "bbc.com",
+  "theguardian.com",
+  "nytimes.com",
+  "washingtonpost.com",
+  "financialtimes.com",
+  "ft.com",
+  "politico.eu",
+  "lefigaro.fr",
+  "mediapart.fr",
+  "lesechos.fr",
+  "euronews.com",
+  "latribune.fr",
+  "sciencesetavenir.fr"
+];
+
+const MARKETING_HOSTS = [
+  "producthunt.com",
+  "github.com",
+  "medium.com",
+  "substack.com",
+  "dev.to",
+  "hashnode.com"
+];
+
+const MARKETING_KEYWORDS = [/product\s*hunt/i, /github/i, /app\s*launch/i, /beta\s*launch/i, /product\s*update/i];
+
+const MIN_VALID_ARTICLES = 5;
+const MAX_MARKETING_RATIO = 0.4;
+const MAX_BRIEFING_ATTEMPTS = 2;
+
 // Concurrency for AI summaries (override with env SUMMARY_CONCURRENCY=5 etc.)
 const SUMMARY_CONCURRENCY = (() => {
   const v = Number(process.env.SUMMARY_CONCURRENCY);
@@ -75,6 +116,30 @@ const FEED_CONCURRENCY = (() => {
   return 6; // default
 })();
 
+function normaliseHost(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host.startsWith("www.") ? host.slice(4) : host;
+  } catch {
+    return null;
+  }
+}
+
+function isCuratedHost(host: string | null): boolean {
+  if (!host) return false;
+  return CURATED_HOSTS.some((curated) => host === curated || host.endsWith(`.${curated}`));
+}
+
+function isMarketingHost(host: string | null): boolean {
+  if (!host) return false;
+  return MARKETING_HOSTS.some((mk) => host === mk || host.endsWith(`.${mk}`));
+}
+
+function isMarketingContent(text: string): boolean {
+  const sample = text.toLowerCase();
+  return MARKETING_KEYWORDS.some((regex) => regex.test(sample));
+}
+
 function logInfo(icon: string, message: string) {
   console.log(`${COLORS.info}${icon}${COLORS.reset} ${message}`);
 }
@@ -99,11 +164,7 @@ const configSchema = z.object({
     minute: z.number().int().min(0).max(59),
     max_articles_per_feed: z.number().int().min(1).max(20),
     max_chars_per_summary: z.number().int().min(120).max(1200),
-    min_chars_per_summary: z.number().int().min(80).max(600),
-    target_words: z.object({
-      overview: z.number().int().min(100).max(2000),
-      analysis: z.number().int().min(50).max(1000)
-    })
+    min_chars_per_summary: z.number().int().min(80).max(600)
   }),
   opencode: z.object({
     model: z.string(),
@@ -194,6 +255,10 @@ async function main() {
     const sources: EditionSource[] = [];
     const narrativeStories: EditionNarrativeItem[] = [];
     const pendingStories: PendingStory[] = [];
+    const qaFlags: string[] = [];
+    let marketingFiltered = 0;
+    let nonCuratedFiltered = 0;
+    let totalCandidateItems = 0;
 
     spinner = ora(`Fetching RSS feeds (0/${config.feeds.length})`).start();
     let feedsProcessed = 0;
@@ -211,6 +276,22 @@ async function main() {
         if (spinner) spinner.text = `Fetching "${feed.title}" (${feedsProcessed + 1}/${config.feeds.length})`;
         feedItems = await fetchFeedItems(feed.url);
         freshItems = pickFreshItems(feedItems, seen, collectionWindow, config.digest.max_articles_per_feed, { ignoreSeen: forceRegeneration });
+        const feedAllowsTechFocus = (feed.tags || []).some((tag) => tag.toLowerCase() === "tech focus day");
+        freshItems = freshItems.filter((item) => {
+          totalCandidateItems++;
+          const host = normaliseHost(item.url);
+          if (!isCuratedHost(host)) {
+            nonCuratedFiltered++;
+            return false;
+          }
+          const marketingHost = isMarketingHost(host);
+          const marketingText = isMarketingContent(`${item.title} ${item.rawContent}`);
+          if (!feedAllowsTechFocus && (marketingHost || marketingText)) {
+            marketingFiltered++;
+            return false;
+          }
+          return true;
+        });
       } catch (error) {
         feedDead = true;
       } finally {
@@ -240,10 +321,30 @@ async function main() {
       }
     });
     spinner.succeed(`Fetched ${config.feeds.length} feeds - found ${totalFreshItems} new items`);
+    if (nonCuratedFiltered > 0) {
+      console.log(`${COLORS.detail}${GLYPHS.info} Skipped ${nonCuratedFiltered} articles from non-curated hosts${COLORS.reset}`);
+    }
+    if (marketingFiltered > 0) {
+      console.log(`${COLORS.detail}${GLYPHS.info} Filtered ${marketingFiltered} marketing/Product Hunt style articles${COLORS.reset}`);
+    }
+    if (totalCandidateItems > 0 && marketingFiltered / totalCandidateItems > MAX_MARKETING_RATIO) {
+      qaFlags.push("More than 40% of fetched articles were filtered as marketing-oriented.");
+    }
 
     if (pendingStories.length === 0) {
       console.log(`${COLORS.warn}${GLYPHS.warn} No new items found. Edition not created.${COLORS.reset}`);
       return;
+    }
+
+    if (pendingStories.length < MIN_VALID_ARTICLES) {
+      const fallbackEdition = await loadFallbackEdition(editionDate);
+      if (fallbackEdition) {
+        console.log(`${COLORS.warn}${GLYPHS.info} Not enough curated items today; falling back to edition ${fallbackEdition.slug}.${COLORS.reset}`);
+        await writeFallbackEdition(editionDate, fallbackEdition);
+        return;
+      }
+      console.log(`${COLORS.warn}${GLYPHS.warn} Less than ${MIN_VALID_ARTICLES} curated articles found and no fallback edition available.${COLORS.reset}`);
+      qaFlags.push("Not enough curated articles to meet editorial target.");
     }
 
     spinner = ora(`Fetching full article content (0/${pendingStories.length})`).start();
@@ -314,10 +415,55 @@ async function main() {
     }
 
     const totalItems = sourcesWithContent.reduce((acc, source) => acc + source.items.length, 0);
+    const distinctFeeds = new Set(sourcesWithContent.map((source) => source.feed));
+    if (distinctFeeds.size < 6) {
+      qaFlags.push("Fewer than six distinct sources after filtering");
+    }
 
-    spinner = ora(`Generating briefing document (overview, analysis, timeline)...`).start();
-    const briefing = await generateBriefingDocument(narrativeStories, config);
-    spinner.succeed(`Briefing document generated (~${briefing.readingMinutes} min read, ${briefing.wordCount} words)`);
+    if (narrativeStories.length > 0) {
+      const marketingSourceCount = narrativeStories.filter((story) => isMarketingHost(normaliseHost(story.url))).length;
+      if (marketingSourceCount / narrativeStories.length > MAX_MARKETING_RATIO) {
+        qaFlags.push("More than 40% of sources originate from marketing-oriented domains");
+      }
+    }
+
+    let briefing: EditionBriefing | null = null;
+    let lastCandidate: EditionBriefing | null = null;
+    let qaResult: { warnings: string[]; errors: string[] } = { warnings: [], errors: [] };
+    for (let attempt = 1; attempt <= MAX_BRIEFING_ATTEMPTS; attempt++) {
+      spinner = ora(`Generating long-form briefing (attempt ${attempt}/${MAX_BRIEFING_ATTEMPTS})...`).start();
+      const candidate = await generateBriefingDocument(narrativeStories, config, attempt);
+      spinner.succeed(`Briefing document generated (~${candidate.readingMinutes} min read, ${candidate.wordCount} words)`);
+      lastCandidate = candidate;
+      qaResult = runEditorialValidation(candidate);
+      qaResult.warnings.forEach((note) => console.log(`${COLORS.detail}${GLYPHS.info} QA note: ${note}${COLORS.reset}`));
+      if (qaResult.errors.length === 0) {
+        briefing = candidate;
+        break;
+      }
+      qaResult.errors.forEach((err) => console.log(`${COLORS.warn}${GLYPHS.warn} QA error on attempt ${attempt}: ${err}${COLORS.reset}`));
+      if (attempt < MAX_BRIEFING_ATTEMPTS) {
+        console.log(`${COLORS.detail}${GLYPHS.info} Retrying briefing generation with stricter constraints...${COLORS.reset}`);
+      }
+    }
+
+    if (!briefing) {
+      if (lastCandidate) {
+        console.log(`${COLORS.warn}${GLYPHS.warn} QA errors persist after ${MAX_BRIEFING_ATTEMPTS} attempts; proceeding with latest draft and logging warnings.${COLORS.reset}`);
+        qaResult.errors.forEach((err) => qaFlags.push(`QA error: ${err}`));
+        briefing = lastCandidate;
+      } else {
+        const fallbackEdition = await loadFallbackEdition(editionDate);
+        if (fallbackEdition) {
+          console.log(`${COLORS.warn}${GLYPHS.info} QA failed; using fallback edition ${fallbackEdition.slug}.${COLORS.reset}`);
+          await writeFallbackEdition(editionDate, fallbackEdition);
+          return;
+        }
+        throw new Error("QA validation failed and no fallback edition available.");
+      }
+    }
+
+    qaFlags.push(...qaResult.warnings);
 
     const frontmatter = {
       date: editionDate,
@@ -356,6 +502,9 @@ async function main() {
     );
     console.log(`  ${COLORS.detail}${GLYPHS.folder} ${path.relative(process.cwd(), targetEditionPath)}${COLORS.reset}`);
     console.log(`  ${COLORS.detail}${GLYPHS.stats} ${totalItems} articles from ${sourcesWithContent.length} sources${COLORS.reset}`);
+    if (qaFlags.length) {
+      qaFlags.forEach((note) => console.log(`${COLORS.warn}${GLYPHS.info} QA flag: ${note}${COLORS.reset}`));
+    }
     // Summary metrics breakdown
     const metrics = getSummaryMetrics();
     const metricKeys = Object.keys(metrics);
@@ -427,6 +576,27 @@ function resolveEditionDate(): string {
     throw new Error("Edition date must be in YYYY-MM-DD format.");
   }
   return arg;
+}
+
+function addDays(date: string, delta: number): string {
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  const base = new Date(Date.UTC(year, month - 1, day));
+  base.setUTCDate(base.getUTCDate() + delta);
+  return base.toISOString().slice(0, 10);
+}
+
+async function loadFallbackEdition(date: string, maxLookback = 3): Promise<EditionDocument | null> {
+  let attempts = 0;
+  let cursor = date;
+  while (attempts < maxLookback) {
+    cursor = addDays(cursor, -1);
+    const edition = await loadEditionByDate(cursor);
+    if (edition) {
+      return edition;
+    }
+    attempts++;
+  }
+  return null;
 }
 
 async function loadSeenCache(): Promise<SeenCache> {
@@ -796,52 +966,72 @@ function composeMarkdown(
   const yaml = YAML.stringify(frontmatter, {
     defaultStringType: "QUOTE_DOUBLE"
   }).trim();
-  const timelineMarkdown = renderTimeline(briefing.timeline, frontmatter.timezone);
-  const factsMarkdown = renderList(briefing.fastFacts);
-  const readingMarkdown = renderFurtherReading(briefing.furtherReading);
-    const sections = [
-      "# L'essentiel du jour",
-      briefing.overview.trim(),
-      "## Analyse",
-      briefing.analysis.trim(),
-      "## À surveiller",
-      timelineMarkdown,
-      factsMarkdown ? "## Repères rapides" : "",
-      factsMarkdown,
-      readingMarkdown ? "## Pour aller plus loin" : "",
-      readingMarkdown
-    ].filter((block) => block.length > 0);
+  const summaryMarkdown = briefing.summaryOfDay.trim();
+  const analysisMarkdown = briefing.criticalAnalysis.trim();
+  const pointsMarkdown = renderList(briefing.pointsToRemember);
+  const watchlistMarkdown = renderWatchlist(briefing.toWatch, frontmatter.timezone);
+  const curiositiesMarkdown = renderList(briefing.curiosities);
+  const positivesMarkdown = renderList(briefing.positiveNotes);
+
+  const sections = [
+    "# Synthèse du jour",
+    summaryMarkdown,
+    "## Analyse critique",
+    analysisMarkdown,
+    pointsMarkdown ? "## Points à retenir" : "",
+    pointsMarkdown,
+    watchlistMarkdown ? "## À surveiller" : "",
+    watchlistMarkdown,
+    curiositiesMarkdown ? "## Curiosités" : "",
+    curiositiesMarkdown,
+    positivesMarkdown ? "## Points positifs" : "",
+    positivesMarkdown
+  ].filter((block) => block.length > 0);
 
   return `---\n${yaml}\n---\n\n${sections.join("\n\n")}\n`;
 }
 
-function formatHighlightTimestamp(input: string, timezone: string): string {
+function formatWatchDate(input: string, timezone: string): string {
+  const trimmed = (input || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const isoLike = /^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/;
+  if (!isoLike.test(trimmed)) {
+    return trimmed;
+  }
+  const date = trimmed.length === 10 ? `${trimmed}T00:00:00Z` : trimmed;
   try {
-    const date = new Date(input);
-    if (Number.isNaN(date.getTime())) {
-      return input;
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) {
+      return trimmed;
     }
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat("fr-FR", {
       day: "2-digit",
       month: "short",
       timeZone: timezone
-    }).format(date);
+    }).format(parsed);
   } catch {
-    return input;
+    return trimmed;
   }
 }
 
-function renderTimeline(
-  entries: EditionBriefing["timeline"],
-  timezone: string
-): string {
+function renderWatchlist(entries: EditionBriefing["toWatch"], timezone: string): string {
   if (!entries.length) {
-    return "Aucun jalon majeur n'a été identifié aujourd'hui.";
+    return "Aucun jalon imminent n'a été identifié aujourd'hui.";
   }
   return entries
     .map((entry) => {
-      const stamped = formatHighlightTimestamp(entry.date, timezone);
-      return `- **${stamped} — ${entry.title}**\n  ${entry.summary} [↗ ${entry.source}](${entry.url})`;
+      const dateLabel = entry.date ? formatWatchDate(entry.date, timezone) : "";
+      const heading = dateLabel ? `${dateLabel} — ${entry.title}` : entry.title;
+      const rawDetail = (entry.detail || "").trim();
+      const detail = rawDetail
+        ? rawDetail.includes("[↗")
+          ? rawDetail
+          : `${rawDetail} [↗ ${entry.source}](${entry.url})`
+        : `[↗ ${entry.source}](${entry.url})`;
+      const indicatorLine = entry.indicator ? `\n  Indicateur : ${entry.indicator}` : "";
+      return `- **${heading}**${indicatorLine}\n  ${detail}`;
     })
     .join("\n");
 }
@@ -850,21 +1040,319 @@ function renderList(items: string[]): string {
   if (!items.length) {
     return "";
   }
-  return items.map((item) => `- ${item}`).join("\n");
+  return items.map((item) => `- ${item.trim()}`).join("\n");
 }
 
-function renderFurtherReading(
-  items: EditionBriefing["furtherReading"]
-): string {
-  if (!items.length) {
-    return "";
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function splitParagraphs(text: string): string[] {
+  return text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+function extractSentences(text: string): string[] {
+  return text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function normaliseUrl(url: string): string {
+  return url.trim().toLowerCase();
+}
+
+function collectSourceUrls(text: string): string[] {
+  const urls: string[] = [];
+  const regex = /\[↗[^\]]*\]\(([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    urls.push(normaliseUrl(match[1]));
   }
-  return items
-    .map((item) => {
-      const note = item.note ? ` — ${item.note}` : "";
-      return `- [${item.title}](${item.url})${note}`;
-    })
-    .join("\n");
+  return urls;
+}
+
+function collectSourceUrlsFromList(items: string[]): string[] {
+  return collectSourceUrls(items.join(" "));
+}
+
+function computeJaccardCoefficient(a: string, b: string): number {
+  const tokenise = (text: string): Set<string> => {
+    const tokens = text.toLowerCase().match(/\p{L}{3,}/gu) ?? [];
+    return new Set(tokens);
+  };
+  const setA = tokenise(a);
+  const setB = tokenise(b);
+  if (setA.size === 0 && setB.size === 0) {
+    return 0;
+  }
+  const intersectionSize = [...setA].filter((token) => setB.has(token)).length;
+  const unionSize = new Set([...setA, ...setB]).size;
+  if (unionSize === 0) {
+    return 0;
+  }
+  return intersectionSize / unionSize;
+}
+
+function detectDuplicateSentences(text: string): string[] {
+  const sentences = extractSentences(text);
+  const seen = new Map<string, string>();
+  const duplicates = new Set<string>();
+  for (const sentence of sentences) {
+    const normalised = sentence.replace(/[^\p{L}\p{N}'-]+/gu, " ").trim().toLowerCase();
+    if (normalised.length < 16) {
+      continue;
+    }
+    if (seen.has(normalised)) {
+      duplicates.add(sentence);
+    } else {
+      seen.set(normalised, sentence);
+    }
+  }
+  return [...duplicates];
+}
+
+function runEditorialValidation(briefing: EditionBriefing): { warnings: string[]; errors: string[] } {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+
+  const summaryParagraphs = splitParagraphs(briefing.summaryOfDay);
+  const analysisParagraphs = splitParagraphs(briefing.criticalAnalysis);
+
+  const summaryWords = countWords(briefing.summaryOfDay);
+  const analysisWords = countWords(briefing.criticalAnalysis);
+  const pointsWords = countWords(briefing.pointsToRemember.join(" "));
+  const watchWords = countWords(briefing.toWatch.map((entry) => `${entry.title} ${entry.detail} ${entry.indicator ?? ""}`).join(" "));
+  const curiosityWords = countWords(briefing.curiosities.join(" "));
+  const positivesWords = countWords(briefing.positiveNotes.join(" "));
+  const computedTotal = summaryWords + analysisWords + pointsWords + watchWords + curiosityWords + positivesWords;
+
+  if (summaryWords < 1000 || summaryWords > 1400) {
+    errors.push(`Synthèse du jour length is ${summaryWords} words; enforce the 1 000–1 400 range.`);
+  }
+  if (analysisWords < 900 || analysisWords > 1200) {
+    errors.push(`Analyse critique length is ${analysisWords} words; enforce the 900–1 200 range.`);
+  }
+
+  const totalWordEstimate = briefing.wordCount ?? computedTotal;
+  if (totalWordEstimate < 2800) {
+    errors.push(`Word count too low (${totalWordEstimate}); expected at least 2 800.`);
+  }
+  if (totalWordEstimate > 3600) {
+    warnings.push(`Word count is ${totalWordEstimate}; tighten the copy to remain below 3 600 words.`);
+  }
+
+  if (summaryParagraphs.length < 4 || summaryParagraphs.length > 6) {
+    errors.push("Synthèse du jour must deliver four to five thematic paragraphs with distinct angles.");
+  }
+
+  const missingCitations = [...summaryParagraphs, ...analysisParagraphs].filter(
+    (paragraph) => paragraph.length > 0 && !paragraph.includes("[↗")
+  );
+  if (missingCitations.length > 0) {
+    errors.push("Every long-form paragraph must include an inline [↗ Source](URL) citation.");
+  }
+
+  for (const paragraph of summaryParagraphs) {
+    const sourcesInParagraph = new Set(collectSourceUrls(paragraph));
+    if (sourcesInParagraph.size < 2) {
+      errors.push("Each thematic block in 'Synthèse du jour' must include at least two distinct sources.");
+      break;
+    }
+  }
+
+  if (analysisParagraphs.length < 4 || analysisParagraphs.length > 6) {
+    errors.push("Analyse critique must contain between four and six paragraphs.");
+  }
+  const causalVerbPattern = /\b(expose|exposent|révèle|révèlent|fragilise|fragilisent|renforce|renforcent|transforme|transforment)\b/i;
+  for (const paragraph of analysisParagraphs) {
+    if (!causalVerbPattern.test(paragraph)) {
+      errors.push("Each paragraph in 'Analyse critique' must include at least one causal verb (expose, révèle, fragilise, renforce, transforme).");
+      break;
+    }
+  }
+  if (/les développements autour de/i.test(briefing.criticalAnalysis)) {
+    errors.push("Remove the phrase “Les développements autour de” from 'Analyse critique'.");
+  }
+
+  const duplicateIssues: string[] = [];
+  const sectionsForDuplicates: Array<{ name: string; content: string }> = [
+    { name: "Synthèse du jour", content: briefing.summaryOfDay },
+    { name: "Analyse critique", content: briefing.criticalAnalysis },
+    { name: "Points à retenir", content: briefing.pointsToRemember.join(" ") },
+    {
+      name: "À surveiller",
+      content: briefing.toWatch.map((entry) => `${entry.title}. ${entry.detail}`).join(" ")
+    },
+    { name: "Curiosités", content: briefing.curiosities.join(" ") },
+    { name: "Points positifs", content: briefing.positiveNotes.join(" ") }
+  ];
+  for (const section of sectionsForDuplicates) {
+    const duplicates = detectDuplicateSentences(section.content);
+    if (duplicates.length > 0) {
+      duplicateIssues.push(section.name);
+    }
+  }
+  if (duplicateIssues.length > 0) {
+    errors.push(`Duplicate or near-duplicate sentences detected within: ${duplicateIssues.join(", ")}.`);
+  }
+
+  const sentences = extractSentences(`${briefing.summaryOfDay}\n${briefing.criticalAnalysis}`);
+  if (sentences.length > 0) {
+    const leadingArticles = sentences.filter((sentence) => /^l['’]|^le\s+/i.test(sentence)).length;
+    if (leadingArticles / sentences.length > 0.25) {
+      warnings.push("More than 25% of sentences begin with 'L'' or 'Le'; vary sentence openings.");
+    }
+  }
+
+  if (briefing.pointsToRemember.length < 5 || briefing.pointsToRemember.length > 7) {
+    errors.push("Points à retenir must list 5 to 7 bullets.");
+  }
+  const parset = new Set<string>();
+  for (const point of briefing.pointsToRemember) {
+    if (!/[—:]/.test(point)) {
+      warnings.push("Each point à retenir should follow the actor — action — impact pattern.");
+      break;
+    }
+    if (!point.includes("[↗")) {
+      errors.push("Each 'Points à retenir' entry must include an inline source citation.");
+      break;
+    }
+    const normalisedLength = point.replace(/\s+/g, " ").trim().length;
+    if (normalisedLength > 200) {
+      errors.push("Points à retenir bullets must stay within 200 characters.");
+      break;
+    }
+    const normalised = point.trim().toLowerCase();
+    if (parset.has(normalised)) {
+      warnings.push("Duplicate entry detected in Points à retenir.");
+      break;
+    }
+    parset.add(normalised);
+  }
+
+  if (briefing.toWatch.length < 4 || briefing.toWatch.length > 6) {
+    errors.push("À surveiller must list between 4 and 6 milestones.");
+  }
+  for (const entry of briefing.toWatch) {
+    if (!entry.date || entry.date.trim().length === 0) {
+      errors.push("Each 'À surveiller' entry must include a date or horizon.");
+      break;
+    }
+    if (!entry.indicator || entry.indicator.trim().length === 0) {
+      errors.push("Each 'À surveiller' entry must include an indicator.");
+      break;
+    }
+    if (!entry.detail.includes("[↗")) {
+      errors.push("Each 'À surveiller' detail must include an inline source citation.");
+      break;
+    }
+  }
+
+  if (briefing.curiosities.length === 0) {
+    warnings.push("Curiosités section is empty; provide at least one open question.");
+  }
+  if (briefing.curiosities.length > 3) {
+    warnings.push("Curiosités should contain at most three items.");
+  }
+  for (const curiosity of briefing.curiosities) {
+    if (!curiosity.trim().endsWith("?")) {
+      warnings.push("Each Curiosité must be phrased as an interrogative sentence.");
+      break;
+    }
+    if (!curiosity.includes("[↗")) {
+      errors.push("Each Curiosité must cite at least one source.");
+      break;
+    }
+    if (curiosity.length > 280) {
+      warnings.push("Curiosités should remain concise (no more than three lines).");
+      break;
+    }
+  }
+
+  if (briefing.positiveNotes.length < 2 || briefing.positiveNotes.length > 3) {
+    errors.push("Points positifs should contain two or three short paragraphs.");
+  }
+  for (const note of briefing.positiveNotes) {
+    if (!note.includes("[↗")) {
+      errors.push("Each paragraph in Points positifs must cite at least one source.");
+      break;
+    }
+    const words = countWords(note);
+    if (words < 110 || words > 190) {
+      errors.push("Each 'Points positifs' paragraph should run between roughly 110 and 190 words.");
+      break;
+    }
+  }
+
+  const sectionSources: Array<{ name: string; urls: string[] }> = [
+    { name: "Synthèse du jour", urls: collectSourceUrls(briefing.summaryOfDay) },
+    { name: "Analyse critique", urls: collectSourceUrls(briefing.criticalAnalysis) },
+    { name: "Points à retenir", urls: collectSourceUrlsFromList(briefing.pointsToRemember) },
+    {
+      name: "À surveiller",
+      urls: collectSourceUrls(briefing.toWatch.map((entry) => `${entry.detail} ${entry.indicator ?? ""}`).join(" "))
+    },
+    { name: "Curiosités", urls: collectSourceUrlsFromList(briefing.curiosities) },
+    { name: "Points positifs", urls: collectSourceUrls(briefing.positiveNotes.join(" ")) }
+  ];
+  const allSources = new Set<string>();
+  for (const section of sectionSources) {
+    const urls = section.urls;
+    const uniqueUrls = new Set(urls);
+    if (uniqueUrls.size < 2) {
+      errors.push(`${section.name} must reference at least two distinct sources.`);
+    }
+    if (uniqueUrls.size > 5) {
+      errors.push(`${section.name} should cap distinct sources at five to avoid clutter.`);
+    }
+    if (uniqueUrls.size !== urls.length) {
+      errors.push(`${section.name} contains duplicate source URLs; collapse repeated links.`);
+    }
+    for (const url of uniqueUrls) {
+      allSources.add(url);
+    }
+  }
+  if (allSources.size < 6) {
+    errors.push(`Too few distinct sources overall (${allSources.size}); provide at least six.`);
+  }
+  if (allSources.size > 12) {
+    warnings.push(`High number of distinct sources overall (${allSources.size}); consider consolidating to stay within twelve.`);
+  }
+
+  const jaccardSimilarity = computeJaccardCoefficient(briefing.summaryOfDay, briefing.criticalAnalysis);
+  if (jaccardSimilarity >= 0.4) {
+    errors.push(`Lexical overlap between 'Synthèse du jour' and 'Analyse critique' is too high (Jaccard ${jaccardSimilarity.toFixed(2)} ≥ 0.40). Diversify the vocabulary.`);
+  }
+
+  const ecologyKeywords = /\b(écolog|climat|biodiversité|justice sociale|gouvernance|transition écologique|climatique)\b/i;
+  const thematicParagraphs = [...summaryParagraphs, ...analysisParagraphs];
+  if (!thematicParagraphs.some((paragraph) => ecologyKeywords.test(paragraph))) {
+    errors.push("Include at least one paragraph that explicitly addresses ecology, social justice, or governance tension.");
+  }
+
+  const summaryAnalysisSentences = extractSentences(`${briefing.summaryOfDay}\n${briefing.criticalAnalysis}`);
+  if (summaryAnalysisSentences.length > 0 && briefing.pointsToRemember.length > 0) {
+    const bulletFragments = briefing.pointsToRemember
+      .map((point) => point.split("[↗")[0].trim().toLowerCase())
+      .filter((fragment) => fragment.length >= 25);
+    let reusedSentences = 0;
+    for (const sentence of summaryAnalysisSentences) {
+      const lowerSentence = sentence.toLowerCase();
+      if (bulletFragments.some((fragment) => lowerSentence.includes(fragment))) {
+        reusedSentences++;
+      }
+    }
+    if (reusedSentences / summaryAnalysisSentences.length > 0.3) {
+      errors.push("More than 30% of sentences in long sections recycle phrasing from 'Points à retenir'. Differentiate the prose.");
+    }
+  }
+
+  return { warnings, errors };
 }
 
 function formatGenerationTimestamp(date: Date, timezone: string): string {
@@ -900,6 +1388,20 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function writeFallbackEdition(targetDate: string, edition: EditionDocument): Promise<void> {
+  const fallbackFrontmatter = {
+    ...edition,
+    date: targetDate,
+    generatedAt: new Date().toISOString(),
+    wordCount: edition.wordCount,
+    readingMinutes: edition.readingMinutes
+  } as EditionDocument;
+  const { content, slug, ...frontmatter } = fallbackFrontmatter;
+  const yaml = YAML.stringify(frontmatter, { defaultStringType: "QUOTE_DOUBLE" }).trim();
+  const markdown = `---\n${yaml}\n---\n\n${content}\n`;
+  await fs.writeFile(path.join(EDITIONS_DIR, `${targetDate}.md`), markdown, "utf8");
 }
 
 void main();

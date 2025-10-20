@@ -38,6 +38,7 @@ Thumbs.db
 /tmp/
 *.tmp
 *.bak
+tsconfig.tsbuildinfo
 
 # Vercel deployment folder
 .vercel/

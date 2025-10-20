@@ -41,21 +41,19 @@ export interface EditionNarrativeItem {
 }
 
 export interface EditionBriefing {
-  overview: string;
-  analysis: string;
-  timeline: Array<{
+  summaryOfDay: string;
+  criticalAnalysis: string;
+  pointsToRemember: string[];
+  toWatch: Array<{
     title: string;
-    summary: string;
-    date: string;
+    detail: string;
+    date?: string;
+    indicator: string;
     source: string;
     url: string;
   }>;
-  fastFacts: string[];
-  furtherReading: Array<{
-    title: string;
-    url: string;
-    note?: string;
-  }>;
+  curiosities: string[];
+  positiveNotes: string[];
   readingMinutes: number;
   wordCount: number;
 }
@@ -69,10 +67,6 @@ export interface DigestConfig {
     max_articles_per_feed: number;
     max_chars_per_summary: number;
     min_chars_per_summary: number;
-    target_words: {
-      overview: number;
-      analysis: number;
-    };
   };
   opencode: {
     model: string;

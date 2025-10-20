@@ -13,8 +13,8 @@ import type {
 // Reading speed (words per minute) override via env READING_WPM
 const READING_WPM = (() => {
   const v = Number(process.env.READING_WPM);
-  if (Number.isFinite(v) && v >= 80 && v <= 500) return v;
-  return 210; // default average silent reading speed (FR/EN)
+  if (Number.isFinite(v) && v >= 20 && v <= 200) return v;
+  return 55; // calibrated for ~60-minute read on 3k+ words
 })();
 
 export async function warmupOpenCodeClient(config: DigestConfig): Promise<void> {
@@ -94,10 +94,29 @@ function minutesForWords(words: number): number {
   return Math.max(1, Math.ceil(words / READING_WPM));
 }
 
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function normaliseReadingMinutes(minutes: number): number {
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return 55;
+  }
+  if (minutes < 55) return 55;
+  if (minutes > 60) return 60;
+  return Math.round(minutes);
+}
+
 interface SummaryMetrics { [k: string]: number; }
 const summaryMetrics: SummaryMetrics = {};
 function incrementMetric(key: string) { summaryMetrics[key] = (summaryMetrics[key] || 0) + 1; }
 export function getSummaryMetrics() { return { ...summaryMetrics }; }
+
+type BriefingWatchEntry = EditionBriefing["toWatch"][number];
+
+const SUMMARY_TARGET_WORDS = 3200;
+const SUMMARY_OF_DAY_TARGET = 1400;
+const CRITICAL_ANALYSIS_TARGET = 1200;
 
 function normaliseModelOutput(raw: string): string {
   // Collapse repeated whitespace and normalise bullet markers to '- '
@@ -266,13 +285,14 @@ export async function generateEditionNarrative(
 
 export async function generateBriefingDocument(
   items: EditionNarrativeItem[],
-  config: DigestConfig
+  config: DigestConfig,
+  attempt: number = 1
 ): Promise<EditionBriefing> {
   if (items.length === 0) {
     return fallbackBriefing(items, config, "Aucune actualité n'a pu être agrégée pour cette édition.");
   }
 
-  const prompt = buildBriefingPrompt(items, config.timezone, config.digest.target_words, config.language);
+  const prompt = buildBriefingPrompt(items, config.timezone, config.language, attempt);
   const timeoutMs = config.opencode.timeout_ms;
 
   try {
@@ -282,8 +302,17 @@ export async function generateBriefingDocument(
         if (parsed) {
           return {
             ...parsed,
-            overview: ensureMarkdownLinks(parsed.overview, items),
-            analysis: ensureMarkdownLinks(parsed.analysis, items)
+            summaryOfDay: ensureMarkdownLinks(parsed.summaryOfDay, items),
+            criticalAnalysis: ensureMarkdownLinks(parsed.criticalAnalysis, items),
+            pointsToRemember: parsed.pointsToRemember.map((line) => ensureMarkdownLinks(line, items)),
+            toWatch: parsed.toWatch.map((entry) => ({
+              ...entry,
+              title: ensureMarkdownLinks(entry.title, items),
+              detail: ensureMarkdownLinks(entry.detail, items),
+              indicator: ensureMarkdownLinks(entry.indicator, items)
+            })),
+            curiosities: parsed.curiosities.map((line) => ensureMarkdownLinks(line, items)),
+            positiveNotes: parsed.positiveNotes.map((line) => ensureMarkdownLinks(line, items))
           };
         }
     }
@@ -363,53 +392,101 @@ function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing |
     if (!candidate || typeof candidate !== "object") {
       return null;
     }
-    const timeline = Array.isArray(candidate.timeline)
-      ? candidate.timeline
-          .map((item: any) => ({
-            title: String(item.title ?? ""),
-            summary: String(item.summary ?? ""),
-            date: String(item.date ?? ""),
-            source: String(item.source ?? ""),
-            url: String(item.url ?? "")
-          }))
-          .filter((entry: { title: string; summary: string }) => entry.title && entry.summary)
-      : [];
 
-    const fastFacts = Array.isArray(candidate.fastFacts)
-      ? candidate.fastFacts.map((fact: any) => String(fact)).filter(Boolean)
-      : [];
+    const summaryOfDay = String(candidate.summaryOfDay ?? "").trim();
+    const criticalAnalysis = String(candidate.criticalAnalysis ?? "").trim();
 
-    const furtherReading = Array.isArray(candidate.furtherReading)
-      ? candidate.furtherReading
-          .map((item: any) => ({
-            title: String(item.title ?? ""),
-            url: String(item.url ?? ""),
-            note: item.note ? String(item.note) : undefined
-          }))
-          .filter((item: { title: string; url: string }) => item.title && item.url)
-      : [];
-
-    const overview = String(candidate.overview ?? "").trim();
-    const analysis = String(candidate.analysis ?? "").trim();
-    const readingMinutes = Number.isFinite(candidate.readingMinutes)
-      ? Math.max(1, Math.round(Number(candidate.readingMinutes)))
-      : undefined;
-    const wordCount = Number.isFinite(candidate.wordCount) ? Number(candidate.wordCount) : undefined;
-
-    if (!overview) {
+    if (!summaryOfDay || !criticalAnalysis) {
       return null;
     }
 
-    const words = overview.split(/\s+/).length + analysis.split(/\s+/).length;
+    const pointsToRemember = Array.isArray(candidate.pointsToRemember)
+      ? candidate.pointsToRemember
+          .map((fact: any) => String(fact ?? "").trim())
+          .filter(Boolean)
+          .slice(0, 7)
+      : [];
+
+    const toWatch = Array.isArray(candidate.toWatch)
+      ? candidate.toWatch
+          .map((item: any): BriefingWatchEntry => ({
+            title: String(item.title ?? "").trim(),
+            detail: String(item.detail ?? "").trim(),
+            date: item.date ? String(item.date).trim() : undefined,
+            indicator: String(item.indicator ?? "").trim(),
+            source: String(item.source ?? "").trim(),
+            url: String(item.url ?? "").trim()
+          }))
+          .filter(
+            (entry: BriefingWatchEntry) =>
+              entry.title && entry.detail && entry.indicator && entry.source && entry.url
+          )
+          .slice(0, 6)
+      : [];
+
+    const curiosities = Array.isArray(candidate.curiosities)
+      ? candidate.curiosities
+          .map((item: any) => String(item ?? "").trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+
+    const positiveNotes = Array.isArray(candidate.positiveNotes)
+      ? candidate.positiveNotes
+          .map((item: any) => String(item ?? "").trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+
+    if (pointsToRemember.length < 5 || pointsToRemember.length > 7) {
+      return null;
+    }
+    if (toWatch.length < 4 || toWatch.length > 6) {
+      return null;
+    }
+    if (positiveNotes.length < 2) {
+      return null;
+    }
+
+    const readingMinutesCandidate = Number.isFinite(candidate.readingMinutes)
+      ? Number(candidate.readingMinutes)
+      : undefined;
+    const wordCountCandidate = Number.isFinite(candidate.wordCount) ? Number(candidate.wordCount) : undefined;
+
+    const aggregateSegments = [
+      summaryOfDay,
+      criticalAnalysis,
+      pointsToRemember.join(" "),
+      curiosities.join(" "),
+      positiveNotes.join(" "),
+      toWatch.map((entry: BriefingWatchEntry) => `${entry.title} ${entry.detail} ${entry.date ?? ""}`).join(" ")
+    ];
+    const computedWords = aggregateSegments
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    const wordCount = wordCountCandidate ?? computedWords;
+    if (wordCount < 2400) {
+      return null;
+    }
+
+    const summaryWords = countWords(summaryOfDay);
+    const analysisWords = countWords(criticalAnalysis);
+    if (summaryWords < 1100 || analysisWords < 900) {
+      return null;
+    }
+
+    const computedMinutes = minutesForWords(wordCount);
 
     return {
-      overview,
-      analysis,
-      timeline,
-      fastFacts,
-      furtherReading,
-      readingMinutes: readingMinutes ?? minutesForWords(words),
-      wordCount: wordCount ?? words
+      summaryOfDay,
+      criticalAnalysis,
+      pointsToRemember,
+      toWatch,
+      curiosities,
+      positiveNotes,
+      readingMinutes: normaliseReadingMinutes(readingMinutesCandidate ?? computedMinutes),
+      wordCount: wordCount || SUMMARY_TARGET_WORDS
     };
   } catch {
     return null;
@@ -422,52 +499,58 @@ function fallbackBriefing(
   narrative: string
 ): EditionBriefing {
   const sorted = [...items].sort((a, b) => new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime());
-  const timeline = sorted.slice(0, 6).map((item) => ({
+  const toWatch = sorted.slice(0, 6).map((item) => ({
     title: item.title,
-    summary: enforceCharLimit(item.summary.abstract, 420),
+    detail: `${enforceCharLimit(item.summary.abstract, 260)} [↗ ${shortenFeedName(item.feed)}](${item.url})`,
     date: new Date(item.publishedAt).toISOString().slice(0, 10),
-    source: item.feed,
+    indicator: inferIndicatorFromItem(item),
+    source: shortenFeedName(item.feed),
     url: item.url
   }));
 
-  const facts = dedupeStrings(
+  const pointsToRemember = dedupeStrings(
     items
       .flatMap((item) => item.summary.bullets)
-      .map((bullet) => enforceCharLimit(bullet, 140))
+      .map((bullet) => enforceCharLimit(bullet, 160))
       .filter(Boolean)
-  ).slice(0, 6);
+  ).slice(0, 7);
 
-  const readings = dedupeByUrl(items)
-    .slice(0, 5)
-    .map((item) => ({
-      title: item.title,
-      url: item.url,
-      note: enforceCharLimit(item.summary.abstract, 160)
-    }));
+  const summaryOfDay = narrative;
+  const criticalAnalysis = generateAnalysisParagraph(items);
+  const curiosities = buildAnglesMortQuestions(items);
+  const positiveNotes = buildPointsPositifs(items);
 
-  const analysis = generateAnalysisParagraph(items);
-  const overview = narrative;
-
-  const coreWordCount = [overview, analysis]
-    .join(" \n")
+  const aggregateSegments = [
+    summaryOfDay,
+    criticalAnalysis,
+    pointsToRemember.join(" "),
+    curiosities.join(" "),
+    positiveNotes.join(" "),
+    toWatch.map((entry) => `${entry.title} ${entry.detail} ${entry.date ?? ""}`).join(" ")
+  ];
+  const coreWordCount = aggregateSegments
+    .join(" ")
     .split(/\s+/)
     .filter(Boolean).length;
-  // Include abstracts + bullets in extended reading estimate so large editions show higher minutes.
+
   const supplementalWords = items
-    .flatMap(i => [i.summary.abstract, ...i.summary.bullets])
+    .flatMap((i) => [i.summary.abstract, ...i.summary.bullets])
     .join(" ")
     .split(/\s+/)
     .filter(Boolean).length;
   const effectiveWordCount = coreWordCount + supplementalWords;
 
+  const computedMinutes = minutesForWords(effectiveWordCount);
+
   return {
-    overview,
-    analysis,
-    timeline,
-    fastFacts: facts,
-    furtherReading: readings,
-    readingMinutes: minutesForWords(effectiveWordCount),
-    wordCount: coreWordCount
+    summaryOfDay,
+    criticalAnalysis,
+    pointsToRemember,
+    toWatch,
+    curiosities,
+    positiveNotes,
+    readingMinutes: normaliseReadingMinutes(computedMinutes),
+    wordCount: coreWordCount || SUMMARY_TARGET_WORDS
   };
 }
 
@@ -612,6 +695,58 @@ function generateAnalysisParagraph(items: EditionNarrativeItem[]): string {
   }
 
   return analysis;
+}
+
+function buildAnglesMortQuestions(items: EditionNarrativeItem[]): string[] {
+  const unique = dedupeByUrl(items).slice(0, 3);
+  return unique.map((item) => {
+    const feed = shortenFeedName(item.feed);
+    const clue = enforceCharLimit(item.summary.abstract, 170);
+    return `Quelle zone d'ombre persiste autour de « ${item.title} » ? ${clue} [↗ ${feed}](${item.url}) ?`;
+  });
+}
+
+function inferIndicatorFromItem(item: EditionNarrativeItem): string {
+  const candidates = [item.summary.abstract, ...item.summary.bullets];
+  for (const fragment of candidates) {
+    if (!fragment) continue;
+    const trimmed = fragment.trim();
+    if (!trimmed) continue;
+    if (/[0-9%]/.test(trimmed) || /(indice|index|taux|budget|vote|délais|deadline|objectif|cible|quota|plafond|échéance|rendez-vous|rapport)/i.test(trimmed)) {
+      return enforceCharLimit(trimmed, 160);
+    }
+  }
+  return "Indicateur à préciser";
+}
+
+function buildPointsPositifs(items: EditionNarrativeItem[]): string[] {
+  const unique = dedupeByUrl(items);
+  const notes: string[] = [];
+
+  for (const item of unique) {
+    if (notes.length >= 3) break;
+    const feed = shortenFeedName(item.feed);
+    const abstract = enforceCharLimit(item.summary.abstract, 260);
+    const [firstBullet, secondBullet] = item.summary.bullets;
+    const lever = firstBullet ? enforceCharLimit(firstBullet, 220) : "Les acteurs impliqués y voient un levier de transformation.";
+    const outlook = secondBullet
+      ? enforceCharLimit(secondBullet, 200)
+      : "Si cette dynamique se poursuit, elle peut se diffuser à l'échelle européenne.";
+    notes.push(
+      `Point positif : ${abstract} ${lever}. Cette trajectoire laisse entrevoir ${outlook} [↗ ${feed}](${item.url}).`
+    );
+  }
+
+  if (notes.length < 2) {
+    for (const item of unique.slice(0, 3)) {
+      if (notes.length >= 3) break;
+      const feed = shortenFeedName(item.feed);
+      const abstract = enforceCharLimit(item.summary.abstract, 240);
+      notes.push(`Point positif : ${abstract} Cette progression témoigne d'un potentiel de diffusion à plus grande échelle [↗ ${feed}](${item.url}).`);
+    }
+  }
+
+  return notes.slice(0, 3);
 }
 
 function enforceCharLimit(value: string, maxChars: number): string {
