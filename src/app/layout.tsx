@@ -78,6 +78,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: preferencesInitScript }} />
         <link rel="icon" href="/icon.svg" sizes="any" type="image/svg+xml" />
+        <link rel="icon" href="/favicon.ico" sizes="32x32" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/site.webmanifest" />
       </head>
       <body className="bg-surface text-foreground">
         <a href="#main" className="skip-link">

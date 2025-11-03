@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "build:favicons": "tsx scripts/build-favicons.ts",
     "generate:edition": "./scripts/generate-with-opencode.sh",
     "generate:edition:raw": "tsx scripts/build-edition.ts",
     "publish": "sh ./scripts/publish.sh"
@@ -32,6 +33,7 @@
     "@types/react-dom": "^19.2.1",
     "eslint": "^9.37.0",
     "eslint-config-next": "15.5.4",
+    "sharp": "0.34.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
