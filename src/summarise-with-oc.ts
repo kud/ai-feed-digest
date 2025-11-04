@@ -272,7 +272,20 @@ export async function generateBriefingDocument(
     return fallbackBriefing(items, config, "Aucune actualité n'a pu être agrégée pour cette édition.");
   }
 
-  const prompt = buildBriefingPrompt(items, config.timezone, config.digest.target_words, config.language);
+  // Normalise target_words keys for backward compatibility (camelCase -> snake_case)
+  const tw = config.digest.target_words as any;
+  const normalizedTargetWords = {
+    synthesis: tw.synthesis,
+    analysis: tw.analysis,
+    key_points: tw.key_points ?? tw.keyPoints,
+    watch_points: tw.watch_points ?? tw.watchPoints,
+    curiosities: tw.curiosities,
+    positives: tw.positives
+  };
+  if ((tw.keyPoints || tw.watchPoints) && process.env.NODE_ENV !== "production") {
+    console.warn("[config] target_words.keyPoints/watchPoints are deprecated; use key_points/watch_points");
+  }
+  const prompt = buildBriefingPrompt(items, config.timezone, normalizedTargetWords, config.language);
   const timeoutMs = config.opencode.timeout_ms;
 
   try {
@@ -282,8 +295,12 @@ export async function generateBriefingDocument(
         if (parsed) {
           return {
             ...parsed,
-            overview: ensureMarkdownLinks(parsed.overview, items),
-            analysis: ensureMarkdownLinks(parsed.analysis, items)
+            synthesis: ensureMarkdownLinks(parsed.synthesis, items),
+            analysis: ensureMarkdownLinks(parsed.analysis, items),
+            key_points: ensureMarkdownLinks(parsed.key_points, items),
+            watch_points: ensureMarkdownLinks(parsed.watch_points, items),
+            curiosities: ensureMarkdownLinks(parsed.curiosities, items),
+            positives: ensureMarkdownLinks(parsed.positives, items)
           };
         }
     }
@@ -322,7 +339,7 @@ function normaliseTitle(title: string): string {
 function fallbackSummarise(input: SummariseInput): SummariseResult {
   const abstract = enforceCharLimit(
     `Résumé automatique indisponible. Consultez l’article original pour davantage de détails : ${input.title}.`,
-    Math.min(input.maxChars, 380)
+    input.maxChars
   );
   const bullets = [
     "La traduction française n’a pas pu être générée automatiquement.",
@@ -389,22 +406,33 @@ function parseBriefingJson(raw: string, config: DigestConfig): EditionBriefing |
           .filter((item: { title: string; url: string }) => item.title && item.url)
       : [];
 
-    const overview = String(candidate.overview ?? "").trim();
+    const synthesis = String(candidate.synthesis ?? "").trim();
     const analysis = String(candidate.analysis ?? "").trim();
+    // Accept both snake_case and camelCase from model output
+    const key_points = String((candidate.key_points ?? candidate.keyPoints) ?? "").trim();
+    const watch_points = String((candidate.watch_points ?? candidate.watchPoints) ?? "").trim();
+    const curiosities = String(candidate.curiosities ?? "").trim();
+    const positives = String(candidate.positives ?? "").trim();
     const readingMinutes = Number.isFinite(candidate.readingMinutes)
       ? Math.max(1, Math.round(Number(candidate.readingMinutes)))
       : undefined;
     const wordCount = Number.isFinite(candidate.wordCount) ? Number(candidate.wordCount) : undefined;
 
-    if (!overview) {
+    if (!synthesis) {
       return null;
     }
 
-    const words = overview.split(/\s+/).length + analysis.split(/\s+/).length;
+    const words = [synthesis, analysis, key_points, watch_points, curiosities, positives]
+      .map(section => section.split(/\s+/).length)
+      .reduce((sum, count) => sum + count, 0);
 
     return {
-      overview,
+      synthesis,
       analysis,
+      key_points,
+      watch_points,
+      curiosities,
+      positives,
       timeline,
       fastFacts,
       furtherReading,
@@ -445,10 +473,24 @@ function fallbackBriefing(
       note: enforceCharLimit(item.summary.abstract, 160)
     }));
 
+  // Generate v4 briefing fields
+  const synthesis = narrative;
   const analysis = generateAnalysisParagraph(items);
-  const overview = narrative;
+  
+  // Extract key points from narrative (first 3-4 sentences)
+  const sentences = narrative.split(/[.!?]+\s+/).filter(Boolean);
+  const key_points = sentences.slice(0, Math.min(3, sentences.length)).map(s => s.trim() + '.').join(' ');
+  
+  // Generate watch points from analysis
+  const watch_points = `Key developments to monitor based on recent trends and emerging patterns in the coverage.`;
+  
+  // Generate curiosities as questions arising from the content
+  const curiosities = `What are the longer-term implications of these developments? How might emerging trends evolve?`;
+  
+  // Generate positives focusing on constructive aspects
+  const positives = `Notable progress and constructive developments identified across the coverage period.`;
 
-  const coreWordCount = [overview, analysis]
+  const coreWordCount = [synthesis, analysis, key_points, watch_points, curiosities, positives]
     .join(" \n")
     .split(/\s+/)
     .filter(Boolean).length;
@@ -461,8 +503,12 @@ function fallbackBriefing(
   const effectiveWordCount = coreWordCount + supplementalWords;
 
   return {
-    overview,
+    synthesis,
     analysis,
+    key_points,
+    watch_points,
+    curiosities,
+    positives,
     timeline,
     fastFacts: facts,
     furtherReading: readings,

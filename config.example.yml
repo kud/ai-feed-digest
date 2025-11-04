@@ -7,8 +7,13 @@ digest:
   max_chars_per_summary: 400
   min_chars_per_summary: 140
   target_words:
-    overview: 500
-    analysis: 300
+    # Use snake_case keys; legacy keyPoints/watchPoints still accepted but deprecated
+    synthesis: 650
+    analysis: 1200
+    key_points: 380
+    watch_points: 340
+    curiosities: 260
+    positives: 260
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null

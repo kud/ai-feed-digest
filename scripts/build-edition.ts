@@ -101,8 +101,12 @@ const configSchema = z.object({
     max_chars_per_summary: z.number().int().min(120).max(1200),
     min_chars_per_summary: z.number().int().min(80).max(600),
     target_words: z.object({
-      overview: z.number().int().min(100).max(2000),
-      analysis: z.number().int().min(50).max(1000)
+      synthesis: z.number().int().min(100).max(2000),
+      analysis: z.number().int().min(50).max(2000),
+       key_points: z.number().int().min(50).max(1000),
+       watch_points: z.number().int().min(50).max(1000),
+      curiosities: z.number().int().min(50).max(1000),
+      positives: z.number().int().min(50).max(1000)
     })
   }),
   opencode: z.object({
@@ -799,18 +803,26 @@ function composeMarkdown(
   const timelineMarkdown = renderTimeline(briefing.timeline, frontmatter.timezone);
   const factsMarkdown = renderList(briefing.fastFacts);
   const readingMarkdown = renderFurtherReading(briefing.furtherReading);
-    const sections = [
-      "# L'essentiel du jour",
-      briefing.overview.trim(),
-      "## Analyse",
-      briefing.analysis.trim(),
-      "## À surveiller",
-      timelineMarkdown,
-      factsMarkdown ? "## Repères rapides" : "",
-      factsMarkdown,
-      readingMarkdown ? "## Pour aller plus loin" : "",
-      readingMarkdown
-    ].filter((block) => block.length > 0);
+  const sections = [
+    "# L'essentiel du jour",
+    briefing.synthesis.trim(),
+    "## Analyse",
+    briefing.analysis.trim(),
+    "## Points clés",
+    briefing.key_points.trim(),
+    "## Points de vigilance",
+    briefing.watch_points.trim(),
+    "## Curiosités",
+    briefing.curiosities.trim(),
+    "## Points positifs",
+    briefing.positives.trim(),
+    "## À surveiller",
+    timelineMarkdown,
+    factsMarkdown ? "## Repères rapides" : "",
+    factsMarkdown,
+    readingMarkdown ? "## Pour aller plus loin" : "",
+    readingMarkdown
+  ].filter((block) => block.length > 0);
 
   return `---\n${yaml}\n---\n\n${sections.join("\n\n")}\n`;
 }

@@ -41,8 +41,12 @@ export interface EditionNarrativeItem {
 }
 
 export interface EditionBriefing {
-  overview: string;
+  synthesis: string;
   analysis: string;
+  key_points: string;
+  watch_points: string;
+  curiosities: string;
+  positives: string;
   timeline: Array<{
     title: string;
     summary: string;
@@ -70,8 +74,12 @@ export interface DigestConfig {
     max_chars_per_summary: number;
     min_chars_per_summary: number;
     target_words: {
-      overview: number;
+      synthesis: number;
       analysis: number;
+      key_points: number;
+      watch_points: number;
+      curiosities: number;
+      positives: number;
     };
   };
   opencode: {

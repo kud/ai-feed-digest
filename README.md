@@ -75,14 +75,21 @@ digest:
   max_chars_per_summary: 400
   min_chars_per_summary: 140
   target_words:
-    overview: 500
-    analysis: 300
+    synthesis: 475      # Cross-article synthesis and patterns
+    analysis: 1050      # Deep-dive analysis of key developments
+    key_points: 350     # Essential takeaways (was keyPoints)
+    watch_points: 300   # Emerging trends to monitor (was watchPoints)
+    curiosities: 250    # Interesting oddities and surprises
+    positives: 250      # Uplifting developments
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null
-  timeout_ms: 45000
+timeout_ms: 45000
+
+thematic_order: false  # Set to true to group articles by theme
 ```
 
+Migration note: legacy keys `keyPoints` and `watchPoints` are still accepted for backward compatibility but will emit a deprecation warning in non-production environments. Update your `config.yml` to use `key_points` and `watch_points` instead.
 4. Add your RSS feeds in `feeds.yml`:
 
 ```yaml
@@ -129,8 +136,12 @@ Visit `http://localhost:3000` to view your digests.
 - `digest.max_articles_per_feed` - Maximum articles to include per feed
 - `digest.max_chars_per_summary` - Maximum length of article summaries
 - `digest.min_chars_per_summary` - Minimum length of article summaries
-- `digest.target_words.overview` - Target word count for overview section
-- `digest.target_words.analysis` - Target word count for analysis section
+- `digest.target_words.synthesis` - Target word count for synthesis section (~475 words)
+- `digest.target_words.analysis` - Target word count for analysis section (~1050 words)
+- `digest.target_words.key_points` - Target word count for key points section (~350 words) (legacy: keyPoints)
+- `digest.target_words.watch_points` - Target word count for watch points section (~300 words) (legacy: watchPoints)
+- `digest.target_words.curiosities` - Target word count for curiosities section (~250 words)
+- `digest.target_words.positives` - Target word count for positives section (~250 words)
 
 ### OpenCode Settings
 
