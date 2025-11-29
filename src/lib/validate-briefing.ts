@@ -91,20 +91,20 @@ export function validateBriefing(
       if (EN_STOP.has(token)) totalEnglishTokens++;
     }
 
-    // Word count soft threshold (≥85% of target)
+    // Word count stricter threshold (≥95% of target)
     const target = (targets as Record<string, number | undefined>)[key];
-    if (typeof target === "number" && words.length < target * 0.85) {
-      reasons.push(`Section ${key} below 85% target (${words.length}/${target})`);
+    if (typeof target === "number" && words.length < target * 0.95) {
+      reasons.push(`Section ${key} below 95% target (${words.length}/${target})`);
     }
 
-    // Paragraph minimums
+    // Paragraph minimums (increased for better depth)
     const paraMin: Record<string, number> = {
-      synthesis: 4,
-      analysis: 6,
-      key_points: 4,
-      watch_points: 3,
-      curiosities: 3,
-      positives: 3
+      synthesis: 6,
+      analysis: 8,
+      key_points: 5,
+      watch_points: 4,
+      curiosities: 4,
+      positives: 4
     };
     if (paragraphCounts[key] < paraMin[key]) {
       reasons.push(`Section ${key} insufficient paragraphs (${paragraphCounts[key]} < ${paraMin[key]})`);
