@@ -101,18 +101,18 @@ const configSchema = z.object({
     max_chars_per_summary: z.number().int().min(120).max(1200),
     min_chars_per_summary: z.number().int().min(80).max(600),
     target_words: z.object({
-      synthesis: z.number().int().min(100).max(2000),
-      analysis: z.number().int().min(50).max(2000),
-       key_points: z.number().int().min(50).max(1000),
-       watch_points: z.number().int().min(50).max(1000),
-      curiosities: z.number().int().min(50).max(1000),
-      positives: z.number().int().min(50).max(1000)
+      synthesis: z.number().int().min(100).max(5000),
+      analysis: z.number().int().min(50).max(5000),
+       key_points: z.number().int().min(50).max(2000),
+       watch_points: z.number().int().min(50).max(2000),
+      curiosities: z.number().int().min(50).max(2000),
+      positives: z.number().int().min(50).max(2000)
     })
   }),
   opencode: z.object({
     model: z.string(),
     agent: z.string().nullable(),
-    timeout_ms: z.number().int().min(1).max(120_000)
+    timeout_ms: z.number().int().min(1).max(300_000)
   }),
   thematic_order: z.boolean().optional().default(false)
 });

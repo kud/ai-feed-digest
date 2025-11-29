@@ -3,21 +3,22 @@ language: "English"
 digest:
   hour: 8
   minute: 30
-  max_articles_per_feed: 6
-  max_chars_per_summary: 400
-  min_chars_per_summary: 140
+  max_articles_per_feed: 10
+  max_chars_per_summary: 1000
+  min_chars_per_summary: 200
   target_words:
-    # Use snake_case keys; legacy keyPoints/watchPoints still accepted but deprecated
-    synthesis: 650
-    analysis: 1200
-    key_points: 380
-    watch_points: 340
-    curiosities: 260
-    positives: 260
+    # v7: Significantly increased for full-length synthesis without artificial limits
+    # These are MINIMUM word counts - no maximum imposed
+    synthesis: 2000      # Opening essay - establish narrative arc
+    analysis: 2000       # Deep systemic investigation - intellectual centerpiece
+    key_points: 700      # 5-6 crystallized insights (~100-120 words each)
+    watch_points: 600    # 4-5 forward-looking analyses
+    curiosities: 500     # 3-4 thought-provoking explorations
+    positives: 500       # 4-5 substantive progress narratives
 opencode:
   model: "github-copilot/gpt-4.1"
   agent: null
-timeout_ms: 45000
+  timeout_ms: 180000  # 3 minutes for premium long-form generation
 
 thematic_order: false
 
