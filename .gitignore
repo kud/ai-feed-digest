@@ -7,7 +7,8 @@ package-lock.json
 out/
 
 # Local config
-.env.local
+.env*
+!.env.example
 config.yml
 feeds.yml
 
@@ -15,6 +16,9 @@ feeds.yml
 content/editions/*.md
 content/cache/
 !content/editions/.gitkeep
+
+# Prompt fine-tuning lab (frozen corpus + replay outputs)
+scratch/
 .claude/
 
 # Logs
