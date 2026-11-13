@@ -2,6 +2,7 @@
   "name": "ai-feed-digest",
   "private": true,
   "version": "0.2.2",
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
