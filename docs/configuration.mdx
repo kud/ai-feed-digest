@@ -3,7 +3,7 @@ title: ⚙️ Configuration
 description: The keys in config.yml and feeds.yml, their allowed ranges, and the environment variables that tune a run.
 ---
 
-A run reads two YAML files from the project root. If either is missing it stops and tells you to copy the matching example (`config.example.yml`, `feeds.example.yml`). If a value is out of range it lists each offending key, for example `- digest.hour: Too big`.
+A run reads two YAML files from the project root. If either is missing it stops and tells you to copy the matching example (`config.example.yml`, `feeds.example.yml`). If a value is out of range it stops with `Configuration is invalid` and lists each offending key by its path, such as `digest.hour`.
 
 ```bash
 cp config.example.yml config.yml
