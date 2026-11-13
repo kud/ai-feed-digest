@@ -1,0 +1,94 @@
+---
+title: ⚡ Usage
+description: How to generate an edition, publish editions on a schedule, and read them in the web app.
+---
+
+## 📋 Cheat sheet
+
+| Task | Command |
+| --- | --- |
+| Generate today's edition | `npm run generate:edition` |
+| Generate a specific date | `npm run generate:edition -- 2026-11-12` |
+| Generate without the opencode server wrapper | `npm run generate:edition:raw` |
+| Generate and commit on a schedule | `npm run publish` |
+| Force today's edition before the cut-off | `npm run publish -- --force` |
+| Read editions locally | `npm run dev` |
+| Production build | `npm run build` then `npm run start` |
+
+## 🗞️ Generating an edition
+
+```bash
+npm run generate:edition
+```
+
+This runs `scripts/generate-with-opencode.sh`, which:
+
+1. Checks whether an opencode server already answers on `http://127.0.0.1:55917/health`.
+2. If not, starts one with `opencode serve --port 55917` (so the `opencode` binary must be on your `PATH`), waits up to 10 seconds for it, and shuts it down again when the run ends. Its log goes to `/tmp/opencode-server.log`.
+3. Exports `OPENCODE_BASE_URL=http://127.0.0.1:55917` and runs `scripts/build-edition.ts` for the edition date.
+
+The date is the first argument, in `YYYY-MM-DD` form. Without one, the wrapper uses today's local date.
+
+`npm run generate:edition:raw` calls `scripts/build-edition.ts` directly. With `OPENCODE_BASE_URL` set it talks to that server; otherwise it starts opencode in-process through the SDK. Note that the raw script's default date is today in UTC, not local time.
+
+If an edition file for that date already exists, the run regenerates it and ignores the seen cache, so the same articles are picked up again.
+
+### What you see
+
+The run reports each stage with a spinner (configuration, seen cache, feeds, full article text, summaries, briefing, file write) and ends with a summary such as:
+
+```
+✓ Edition 2026-11-12 created successfully!
+  ▸ content/editions/2026-11-12.md
+  ≡ 24 articles from 7 sources
+  ℹ summary-metrics success=22 success_after_retry=4 parse_fail=1
+  ⏱ Generated in 1m 12s
+```
+
+A feed that fails to download is flagged as `Feed appears dead` and skipped. If no feed has anything new in the window, no edition is written.
+
+### Summary metrics
+
+The metrics line counts how each article summary ended. Only non-zero keys are printed:
+
+| Key | Meaning |
+| --- | --- |
+| `success` | Summary parsed on some attempt |
+| `success_after_retry` | Of those, how many needed more than one attempt |
+| `parse_fail` | The model answered, but not in the abstract-plus-bullets shape |
+| `request_error` | Transport error or timeout before any parsing |
+| `refusal_fallback` | Gave up after refusal-style answers and used the fallback summary |
+| `exhausted_fallback` | Gave up after other repeated failures and used the fallback summary |
+
+The same numbers, with the date and model, are written to `content/cache/summary-metrics.json`.
+
+## 🕰️ Publishing on a schedule
+
+```bash
+npm run publish
+```
+
+`scripts/publish.sh` reads `timezone`, `digest.hour` and `digest.minute` from `config.yml` and decides which edition to build:
+
+- **After the cut-off** — builds today's edition.
+- **Before the cut-off** — if yesterday's edition exists, does nothing; otherwise builds yesterday's as a catch-up.
+- **`--force` / `-f`** — builds today's edition whatever the time.
+- **A date argument** — builds that date.
+
+It then runs `npm run generate:edition`, and if anything changed under `content/editions/` it commits those files and runs `git push`. The script uses BSD `date` flags, so as written it runs on macOS.
+
+## 📖 Reading editions
+
+```bash
+npm run dev
+```
+
+The site has three routes:
+
+| Route | Shows |
+| --- | --- |
+| `/` | Redirects to the most recent edition, or explains how to create the first one |
+| `/edition/YYYY-MM-DD` | One edition |
+| `/archive` (also `/archives`) | Every edition, newest first |
+
+Readers can switch light and dark themes and adjust font, text size and column width; those choices are kept in the browser's local storage. Interface labels are in French or English, chosen with `NEXT_PUBLIC_LANGUAGE` (see [Configuration](/projects/ai-feed-digest/docs/configuration)).

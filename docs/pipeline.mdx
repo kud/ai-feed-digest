@@ -1,0 +1,54 @@
+---
+title: 🔬 Pipeline
+description: What happens during a run, from choosing articles to writing the edition file.
+---
+
+`scripts/build-edition.ts` builds one edition per run. Each stage below matches a spinner line in the output.
+
+## 1. Collection window
+
+An edition covers the 24 hours that end at `digest.hour`:`digest.minute` on the edition date, in `timezone`. With `hour: 8` and `minute: 30`, the edition for 12 November collects articles published from 08:30 on the 11th up to 08:30 on the 12th.
+
+## 2. Picking articles
+
+Every feed is fetched (10-second timeout, up to `FEED_CONCURRENCY` at once). Within each feed, items are sorted newest first, then an item is skipped when it:
+
+- has no link,
+- was published after the window closes,
+- or has already appeared in an earlier edition.
+
+The walk stops at the first item older than the window, or once `max_articles_per_feed` items are taken. Items with no parseable date are kept.
+
+"Already appeared" comes from `content/cache/seen.json`, a list of SHA-1 hashes of article URLs. It is updated after each edition is written. Regenerating an existing edition ignores it, so the same day can be rebuilt.
+
+## 3. Full article text
+
+The feed's own content is converted to plain text. If that is shorter than `min_chars_per_summary`, the article page itself is fetched (10-second timeout, HTML only) and its text used instead. These fetches respect both `HYDRATE_CONCURRENCY` and `HYDRATE_PER_DOMAIN_CONCURRENCY`, so a single site is never hit hard.
+
+## 4. Article summaries
+
+Each article is sent to the model with a prompt asking for an abstract and bullet points in your configured `language`, within the character limits. When the article is in another language, the model can also return a translated title; it is shown with the original language code, for example `[en]`.
+
+A summary attempt can fail three ways: the request errors or times out, the answer cannot be parsed, or it reads like a refusal ("as an AI model", "cannot access"…). Failed attempts are retried up to `SUMMARY_RETRIES` times with exponential backoff (about 500 ms, 1 s, 2 s, 4 s, plus jitter). When every attempt fails, the article gets a fixed fallback summary pointing to the original link, so the edition always completes.
+
+Summaries run in parallel (`SUMMARY_CONCURRENCY`), but the final order always follows feed order, then article order, so reruns are stable.
+
+## 5. The briefing
+
+All summaries then go to the model in one request for the edition-level briefing: an overview and an analysis (aiming at `target_words`), a timeline of what to watch, quick facts and further reading. If that request fails or returns something unusable, a simpler narrative is built from the article summaries instead.
+
+## 6. The edition file
+
+The result is written to `content/editions/YYYY-MM-DD.md`. Its frontmatter holds:
+
+| Field | Content |
+| --- | --- |
+| `date` | Edition date |
+| `title` | `Daily Brief — 12 Nov 2026` style title |
+| `timezone` | From `config.yml` |
+| `sources` | Per feed: each article's title, URL, publication date and summary (abstract, bullets, and whether it came from the model or the fallback) |
+| `generatedAt` | ISO timestamp of the run |
+| `readingMinutes` | Estimated reading time of the briefing, from `READING_WPM` |
+| `wordCount` | Word count of the briefing |
+
+The body carries the briefing sections. Their headings are currently fixed in French (`L'essentiel du jour`, `Analyse`, `À surveiller`, `Repères rapides`, `Pour aller plus loin`), whatever `language` is set to; the text under them follows `language`.

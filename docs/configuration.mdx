@@ -1,0 +1,103 @@
+---
+title: ⚙️ Configuration
+description: The keys in config.yml and feeds.yml, their allowed ranges, and the environment variables that tune a run.
+---
+
+A run reads two YAML files from the project root. If either is missing it stops and tells you to copy the matching example (`config.example.yml`, `feeds.example.yml`). If a value is out of range it lists each offending key, for example `- digest.hour: Too big`.
+
+```bash
+cp config.example.yml config.yml
+cp feeds.example.yml feeds.yml
+```
+
+## 📝 config.yml
+
+```yaml
+timezone: "Europe/London"
+language: "English"
+digest:
+  hour: 8
+  minute: 30
+  max_articles_per_feed: 6
+  max_chars_per_summary: 400
+  min_chars_per_summary: 140
+  target_words:
+    overview: 500
+    analysis: 300
+opencode:
+  model: "github-copilot/gpt-4.1"
+  agent: null
+  timeout_ms: 45000
+thematic_order: false
+```
+
+| Key | Type and range | What it does |
+| --- | --- | --- |
+| `timezone` | IANA name, required | Time zone for the collection window, timeline dates and the publish cut-off |
+| `language` | string, defaults to `fr` | Language the model writes in, as a plain name such as `English` or `French` |
+| `digest.hour` | 0–23 | Hour the edition's 24-hour window closes |
+| `digest.minute` | 0–59 | Minute the window closes |
+| `digest.max_articles_per_feed` | 1–20 | Most articles taken from one feed per edition |
+| `digest.max_chars_per_summary` | 120–1200 | Upper length of each article abstract |
+| `digest.min_chars_per_summary` | 80–600 | Lower length of each abstract; feed text shorter than this triggers a fetch of the full article |
+| `digest.target_words.overview` | 100–2000 | Target length of the edition's overview |
+| `digest.target_words.analysis` | 50–1000 | Target length of the analysis section |
+| `opencode.model` | string, required | Model as `provider/model` |
+| `opencode.agent` | string or `null` | opencode agent to use, when opencode is started in-process |
+| `opencode.timeout_ms` | 1–120000 | Timeout for each model request |
+| `thematic_order` | boolean, defaults to `false` | Reorder stories by feed tags (see below) |
+
+`timeout_ms` belongs under `opencode`. A top-level `timeout_ms` is ignored, and the run fails validation because `opencode.timeout_ms` is required.
+
+## 📡 feeds.yml
+
+```yaml
+feeds:
+  - title: "BBC World"
+    url: "http://feeds.bbci.co.uk/news/world/rss.xml"
+    tags: [news]
+  - title: "Hacker News"
+    url: "https://hnrss.org/frontpage"
+    tags: [tech, coding]
+```
+
+At least one feed is required. Each has a `title`, a valid `url` and optional `tags`. The feed order is kept in the edition, unless `thematic_order` is on.
+
+### Thematic ordering
+
+With `thematic_order: true`, stories are sorted by the best-ranked tag of their feed, lowest first; ties keep feed order. Tags are matched in lower case. Known tags, by rank:
+
+| Rank | Tags |
+| --- | --- |
+| 0 | `news`, `hard` |
+| 1–3 | `politics`, `economy`, `business` |
+| 8–11 | `science`, `ai`, `tech`, `coding`, `developer` |
+| 15–16 | `design`, `ux` |
+| 22–25 | `culture`, `discover`, `fashion`, `lifestyle` |
+| 30–34 | `games`, `gaming`, `deals` |
+
+Any other tag, or no tag, ranks 50 and goes last.
+
+## 🌍 Environment variables
+
+None are required. Out-of-range values fall back to the default or are clamped to the maximum.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `OPENCODE_BASE_URL` | unset | URL of a running opencode server. `npm run generate:edition` sets it for you |
+| `OPENCODE_MODEL` | unset | Overrides `opencode.model` for one run, without touching `config.yml` |
+| `OPENCODE_CONFIG_JSON` | unset | JSON merged into opencode's config when it is started in-process; invalid JSON is ignored |
+| `FEED_CONCURRENCY` | `6` (max 16) | Feeds fetched in parallel |
+| `HYDRATE_CONCURRENCY` | `6` (max 12) | Full articles fetched in parallel |
+| `HYDRATE_PER_DOMAIN_CONCURRENCY` | `1` (max 3) | Full-article fetches allowed against one host at once |
+| `SUMMARY_CONCURRENCY` | `3` (max 10) | Article summaries requested in parallel |
+| `SUMMARY_RETRIES` | `3` (1–5) | Attempts per article summary before falling back |
+| `READING_WPM` | `210` (80–500) | Words per minute used for the reading-time estimate |
+| `INCLUDE_SOURCE_URL_IN_PROMPT` | `true` | Set to `false` to leave the article URL out of the prompt |
+| `NEXT_PUBLIC_LANGUAGE` | `fr` | Web app interface language, `fr` or `en` |
+
+For a one-off model swap:
+
+```bash
+OPENCODE_MODEL=openai/gpt-4o-mini npm run generate:edition
+```

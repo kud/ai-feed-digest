@@ -1,0 +1,14 @@
+---
+title: 👋 Introduction
+description: A self-hosted daily briefing that reads your RSS feeds, summarises them with a language model and publishes each edition as a small Next.js site.
+---
+
+**ai-feed-digest** turns a list of RSS feeds into one dated edition a day: every fresh article gets a short abstract and a few bullet points, and the day as a whole gets an overview, an analysis and a timeline. Editions are plain Markdown files in `content/editions/`, so the archive is just a folder you can keep in git.
+
+The model calls go through [opencode](https://opencode.ai), which means any model opencode can reach (set as `provider/model`) can write your digest.
+
+## What's here
+
+- [⚡ Usage](/projects/ai-feed-digest/docs/usage) — generating an edition, the scheduled publish script, and reading editions in the browser
+- [⚙️ Configuration](/projects/ai-feed-digest/docs/configuration) — every key in `config.yml` and `feeds.yml`, plus the environment variables that tune a run
+- [🔬 Pipeline](/projects/ai-feed-digest/docs/pipeline) — how a run picks articles, retries the model, falls back, and what lands in the edition file
