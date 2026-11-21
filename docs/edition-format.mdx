@@ -1,0 +1,60 @@
+---
+title: 🧾 Edition format
+description: The structured, public JSON form of an edition, and the item ids that let any reader point at the same article.
+---
+
+Every edition exists in two forms: the Markdown file in `content/editions/` that the web reader renders, and a JSON document served next to it. Both describe the same articles with the same numbers, so "item 12" means the same thing on the page, in the JSON, and in a conversation about the edition.
+
+## Item ids
+
+Each article in an edition carries an `id`, a whole number counted from 1 in reading order: feeds in the order of `feeds.yml`, then articles in the order they were picked within each feed.
+
+- Ids are written into the edition's frontmatter when the edition is built, so they do not move once the file exists.
+- Editions written before ids existed get them when loaded, using the same reading order, so older editions are addressable too.
+- An id is only unique within its edition. To refer to an article from outside, pair it with the edition date: `2026-11-12#12`.
+
+## JSON endpoint
+
+```
+/edition/YYYY-MM-DD/edition.json
+```
+
+The document is generated at build time alongside each edition page and contains only public RSS data:
+
+```json
+{
+  "schemaVersion": 1,
+  "date": "2026-11-12",
+  "title": "Daily Brief — 12 Nov 2026",
+  "timezone": "Europe/Paris",
+  "generatedAt": "2026-11-12T08:31:00.000Z",
+  "items": [
+    {
+      "id": 1,
+      "title": "An article title",
+      "source": "Example Feed",
+      "url": "https://example.com/article",
+      "publishedAt": "2026-11-12T06:15:00.000Z",
+      "summary": {
+        "abstract": "Two or three sentences about the article.",
+        "bullets": ["A key point", "Another key point"]
+      }
+    }
+  ]
+}
+```
+
+| Field | Content |
+| --- | --- |
+| `schemaVersion` | Format version; it changes only when a field is renamed or removed |
+| `date`, `title`, `timezone`, `generatedAt` | Copied from the edition frontmatter (`generatedAt` is `null` when unknown) |
+| `items[].id` | The item id described above; items are listed by id |
+| `items[].source` | Title of the feed the article came from |
+| `items[].url` | Original article link, unchanged |
+| `items[].summary` | The article's abstract and bullet points |
+
+How a summary was produced (model or fallback, and which engine) stays in the Markdown frontmatter and is not part of the public JSON.
+
+## Exploring an edition conversationally
+
+Because the JSON is self-contained and public, any assistant that can fetch a URL can read an edition and answer requests such as "dig into 12" or "compare 3 and 7": it finds the item by `id`, then follows its `url` for the full article.

@@ -18,6 +18,7 @@ import {
   EditionSource,
   SummariseInput
 } from "../src/lib/types";
+import { assignItemIds } from "../src/lib/edition-items";
 import { EDITIONS_DIR, CONFIG_PATH, FEEDS_CONFIG_PATH, SEEN_CACHE_PATH, SUMMARY_METRICS_PATH } from "../src/lib/constants";
 
 const rssParser = new Parser({
@@ -323,7 +324,7 @@ async function main() {
       date: editionDate,
       title: buildEditionTitle(editionDate),
       timezone: config.timezone,
-      sources: sourcesWithContent,
+      sources: assignItemIds(sourcesWithContent),
       generatedAt: new Date().toISOString(),
       readingMinutes: briefing.readingMinutes,
       wordCount: briefing.wordCount
