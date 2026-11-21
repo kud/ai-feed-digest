@@ -46,9 +46,11 @@ The result is written to `content/editions/YYYY-MM-DD.md`. Its frontmatter holds
 | `date` | Edition date |
 | `title` | `Daily Brief — 12 Nov 2026` style title |
 | `timezone` | From `config.yml` |
-| `sources` | Per feed: each article's title, URL, publication date and summary (abstract, bullets, and whether it came from the model or the fallback) |
+| `sources` | Per feed: each article's id, title, URL, publication date and summary (abstract, bullets, and whether it came from the model or the fallback) |
 | `generatedAt` | ISO timestamp of the run |
 | `readingMinutes` | Estimated reading time of the briefing, from `READING_WPM` |
 | `wordCount` | Word count of the briefing |
 
 The body carries the briefing sections. Their headings are currently fixed in French (`L'essentiel du jour`, `Analyse`, `À surveiller`, `Repères rapides`, `Pour aller plus loin`), whatever `language` is set to; the text under them follows `language`.
+
+Each article's `id` is its number within the edition, counted from 1 in reading order. The same edition is also served as JSON at `/edition/YYYY-MM-DD/edition.json`; see [🧾 Edition format](/projects/ai-feed-digest/docs/edition-format).
