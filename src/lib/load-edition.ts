@@ -3,6 +3,7 @@ import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
 import { EDITIONS_DIR } from "./constants";
+import { assignItemIds } from "./edition-items";
 import type { EditionDocument, EditionFrontmatter } from "./types";
 
 const editionSchema = z.object({
@@ -21,6 +22,7 @@ const editionSchema = z.object({
         items: z
           .array(
             z.object({
+              id: z.number().int().positive().optional(),
               title: z.string(),
               url: z.string().url(),
               publishedAt: z
@@ -83,6 +85,7 @@ function parseEdition(fileContents: string, slug: string): EditionDocument {
   const validated = editionSchema.parse(parsed.data) as EditionFrontmatter;
   return {
     ...validated,
+    sources: assignItemIds(validated.sources),
     slug,
     content: parsed.content.trim()
   };

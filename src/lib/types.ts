@@ -6,6 +6,8 @@ export interface ItemSummary {
 }
 
 export interface EditionItem {
+  /** Stable number of the item within its edition, counted from 1. */
+  id?: number;
   title: string;
   url: string;
   publishedAt: string;
